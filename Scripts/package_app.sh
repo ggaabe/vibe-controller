@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+APP_DIR="$ROOT_DIR/dist/Vibe Controller.app"
+EXECUTABLE="$ROOT_DIR/.build/debug/VibeController"
+SIGNING_IDENTITY="${VIBE_CONTROLLER_SIGNING_IDENTITY:-}"
+DEFAULT_SIGNING_IDENTITY="Apple Development: Gabriel Garrett (Q527MSL34N)"
+
+if [[ ! -x "$EXECUTABLE" ]]; then
+  echo "Missing debug executable at $EXECUTABLE"
+  echo "Run: swift build"
+  exit 1
+fi
+
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="$DEFAULT_SIGNING_IDENTITY"
+fi
+
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  echo "No Apple Development signing identity found."
+  exit 1
+fi
+
+if ! security find-identity -v -p codesigning | grep -Fq "\"$SIGNING_IDENTITY\""; then
+  echo "Configured signing identity not found: $SIGNING_IDENTITY"
+  echo "Set VIBE_CONTROLLER_SIGNING_IDENTITY to one of the identities returned by:"
+  echo "  security find-identity -v -p codesigning"
+  exit 1
+fi
+
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
+cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/VibeController"
+
+cat > "$APP_DIR/Contents/Info.plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleExecutable</key>
+  <string>VibeController</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.vibe-controller.app</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>Vibe Controller</string>
+  <key>CFBundleDisplayName</key>
+  <string>Vibe Controller</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key>
+  <true/>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+</dict>
+</plist>
+EOF
+
+codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_DIR"
+echo "Packaged $APP_DIR"

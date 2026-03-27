@@ -1,0 +1,409 @@
+import AppKit
+import SwiftUI
+
+struct MainWindowView: View {
+    @EnvironmentObject private var appModel: AppModel
+    @Environment(\.colorScheme) private var colorScheme
+
+    @State private var isImporting = false
+    @State private var isExporting = false
+    @State private var exportDocument: ExportProfileDocument?
+
+    var body: some View {
+        VStack(spacing: 18) {
+            header
+                .zIndex(2)
+            diagnosticsStrip
+                .zIndex(2)
+            if appModel.accessibilityTrusted {
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .zIndex(0)
+            } else {
+                PermissionSetupView()
+                    .zIndex(0)
+            }
+            footer
+                .zIndex(2)
+        }
+        .padding(20)
+        .background(
+            LinearGradient(
+                colors: colorScheme == .dark
+                    ? [Color(red: 0.10, green: 0.11, blue: 0.13), Color(red: 0.07, green: 0.08, blue: 0.10)]
+                    : [Color(NSColor.windowBackgroundColor), Color(nsColor: .underPageBackgroundColor)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .sheet(item: $appModel.presentedSheet) { selection in
+            switch selection {
+            case .mapping(let control):
+                MappingSheetView(control: control)
+                    .environmentObject(appModel)
+            case .stick(let side):
+                StickRoleSheetView(stickSide: side)
+                    .environmentObject(appModel)
+            }
+        }
+        .fileImporter(
+            isPresented: $isImporting,
+            allowedContentTypes: [.vibeControllerProfile, .json],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    appModel.importProfile(from: url)
+                }
+            case .failure(let error):
+                appModel.lastErrorMessage = error.localizedDescription
+            }
+        }
+        .fileExporter(
+            isPresented: $isExporting,
+            document: exportDocument,
+            contentType: .vibeControllerProfile,
+            defaultFilename: appModel.activeProfile.name.replacingOccurrences(of: " ", with: "-")
+        ) { result in
+            if case .failure(let error) = result {
+                appModel.lastErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Vibe Controller")
+                    .font(.system(size: 28, weight: .semibold, design: .rounded))
+                Text(appModel.controllerSnapshot.controllerName ?? "Waiting for controller")
+                    .font(.headline)
+                HStack(spacing: 10) {
+                    if let connection = appModel.controllerSnapshot.connectionSummary {
+                        Label(connection, systemImage: "cable.connector")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let battery = appModel.batterySummary {
+                        Label(battery, systemImage: "battery.75")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 12) {
+                StatusBadgeView(state: appModel.statusBadgeState)
+                HStack(spacing: 8) {
+                    Label(appModel.runtimeStatusText, systemImage: appModel.isRuntimeEnabled ? "power.circle.fill" : "power.circle")
+                    Label(appModel.listeningStatusText, systemImage: "gamecontroller.fill")
+                }
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+                Picker("Profile", selection: Binding(
+                    get: { appModel.activeProfileID },
+                    set: { appModel.selectProfile($0) }
+                )) {
+                    ForEach(appModel.availableProfiles) { profile in
+                        Text(profile.name).tag(profile.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 220)
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+    }
+
+    private var diagnosticsStrip: some View {
+        HStack(spacing: 12) {
+            LiveControllerCard()
+                .environmentObject(appModel)
+            DiagnosticCard(
+                title: "Cursor",
+                value: appModel.cursorDiagnostics.state.rawValue.capitalized,
+                detail: appModel.cursorDiagnostics.message,
+                symbol: "cursorarrow.motionlines",
+                tint: appModel.cursorDiagnostics.state == .moving ? .blue : .secondary
+            )
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Test")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Button("Test Cursor Nudge") {
+                    appModel.testCursorNudge()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+            }
+            .frame(width: 200, alignment: .leading)
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color(NSColor.controlBackgroundColor))
+            )
+        }
+    }
+
+    private var content: some View {
+        HStack(alignment: .top, spacing: 20) {
+            CursorSettingsView()
+                .environmentObject(appModel)
+                .frame(width: 360)
+
+            VStack(spacing: 16) {
+                ControllerDiagramView()
+                    .environmentObject(appModel)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                if !appModel.controllerSnapshot.isConnected {
+                    NoControllerHelpView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .clipped()
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            Button("Enable") {
+                appModel.setRuntimeEnabled(true)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!appModel.accessibilityTrusted || appModel.isRuntimeEnabled)
+
+            Button("Disable") {
+                appModel.setRuntimeEnabled(false)
+            }
+            .buttonStyle(.bordered)
+            .disabled(!appModel.isRuntimeEnabled)
+
+            Button("Reset to Defaults") {
+                appModel.resetActiveProfileToDefaults()
+            }
+
+            Spacer()
+
+            if let error = appModel.lastErrorMessage {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            }
+
+            Button("Import Profile") {
+                isImporting = true
+            }
+
+            Button("Export Profile") {
+                do {
+                    exportDocument = try ExportProfileDocument(profile: appModel.activeProfile)
+                    isExporting = true
+                } catch {
+                    appModel.lastErrorMessage = error.localizedDescription
+                }
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
+private struct LiveControllerCard: View {
+    @EnvironmentObject private var appModel: AppModel
+
+    var body: some View {
+        let snapshot = appModel.controllerSnapshot
+        let pressed = snapshot.pressedControls.map(\.displayName).sorted().joined(separator: ", ")
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Controller", systemImage: "dot.radiowaves.left.and.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(appModel.controllerInputEvents) events")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(snapshot.isConnected ? .green : .secondary)
+            }
+
+            HStack(alignment: .top, spacing: 14) {
+                StickTelemetryView(title: "Left", stick: snapshot.leftStick)
+                StickTelemetryView(title: "Right", stick: snapshot.rightStick)
+                TriggerTelemetryView(title: "LT", value: snapshot.value(for: .leftTrigger))
+                TriggerTelemetryView(title: "RT", value: snapshot.value(for: .rightTrigger))
+            }
+
+            Text("Pressed: \(pressed.isEmpty ? "none" : pressed)")
+                .font(.footnote.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+    }
+}
+
+private struct DiagnosticCard: View {
+    let title: String
+    let value: String
+    let detail: String
+    let symbol: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: symbol)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(tint)
+            Text(detail)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+    }
+}
+
+private struct StickTelemetryView: View {
+    let title: String
+    let stick: StickSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            AxisMeter(label: "X", value: stick.x)
+            AxisMeter(label: "Y", value: stick.y)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct TriggerTelemetryView: View {
+    let title: String
+    let value: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ProgressView(value: min(max(value, 0), 1))
+                .progressViewStyle(.linear)
+            Text(value.formatted(.number.precision(.fractionLength(2))))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: 72, alignment: .leading)
+    }
+}
+
+private struct AxisMeter: View {
+    let label: String
+    let value: Double
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 12, alignment: .leading)
+            GeometryReader { proxy in
+                let clamped = min(max(value, -1), 1)
+                let indicatorX = ((clamped + 1) / 2) * max(proxy.size.width - 10, 1)
+
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.16))
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.22))
+                        .frame(width: 1)
+                        .frame(maxWidth: .infinity)
+                        .offset(x: (proxy.size.width / 2) - 0.5)
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 10, height: 10)
+                        .offset(x: indicatorX)
+                }
+            }
+            .frame(width: 96, height: 10)
+            Text(value.formatted(.number.precision(.fractionLength(2))))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 38, alignment: .trailing)
+        }
+    }
+}
+
+private struct PermissionSetupView: View {
+    @EnvironmentObject private var appModel: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Accessibility setup")
+                .font(.title2.weight(.semibold))
+            Text("Vibe Controller needs Accessibility permission to move the pointer and send clicks and keyboard shortcuts across macOS.")
+                .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Button("Open Privacy & Security") {
+                    appModel.requestAccessibilitySetup()
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Refresh Status") {
+                    appModel.permissionManager.refresh()
+                }
+            }
+            HStack(spacing: 8) {
+                Image(systemName: appModel.accessibilityTrusted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(appModel.accessibilityTrusted ? .green : .orange)
+                Text(appModel.accessibilityTrusted ? "Accessibility granted" : "Accessibility not granted yet")
+                    .font(.subheadline.weight(.medium))
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 360, alignment: .leading)
+        .padding(28)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+    }
+}
+
+private struct NoControllerHelpView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("No controller detected")
+                .font(.headline)
+            Text("Connect your Xbox controller by Bluetooth or USB, then open System Settings → Game Controllers to verify macOS can see it.")
+                .foregroundStyle(.secondary)
+            Button("Open System Settings") {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+    }
+}
