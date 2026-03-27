@@ -43,6 +43,7 @@ final class CursorEngine {
     var accessibilityTrusted = false
     var suspendControllerMotion = false
     var onDiagnostics: ((CursorDiagnostics) -> Void)?
+    var movementInterceptor: ((CGPoint, SIMD2<Double>) -> Bool)?
 
     init() {
         startTimer()
@@ -191,6 +192,15 @@ final class CursorEngine {
 
     private func moveCursor(by delta: SIMD2<Double>) {
         let currentPosition = currentCursorPosition()
+        if movementInterceptor?(currentPosition, delta) == true {
+            publishDiagnostics(
+                state: .moving,
+                velocity: smoothedVelocity,
+                location: currentPosition,
+                message: "Forwarding cursor movement to companion."
+            )
+            return
+        }
         let unclamped = CGPoint(x: currentPosition.x + delta.x, y: currentPosition.y + delta.y)
         let target = clampedToVisibleScreens(unclamped)
         let type: CGEventType = isDraggingLeftMouse ? .leftMouseDragged : .mouseMoved
@@ -202,6 +212,11 @@ final class CursorEngine {
             location: target,
             message: warpResult == .success ? "Posting cursor movement." : "Cursor warp failed: \(warpResult.rawValue)"
         )
+    }
+
+    func applyExternalDelta(_ delta: SIMD2<Double>) {
+        guard isEnabled, accessibilityTrusted else { return }
+        moveCursor(by: delta)
     }
 
     private func clampedToVisibleScreens(_ point: CGPoint) -> CGPoint {

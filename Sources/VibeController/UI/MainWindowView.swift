@@ -152,9 +152,15 @@ struct MainWindowView: View {
 
     private var content: some View {
         HStack(alignment: .top, spacing: 20) {
-            CursorSettingsView()
-                .environmentObject(appModel)
-                .frame(width: 360)
+            VStack(spacing: 16) {
+                CursorSettingsView()
+                    .environmentObject(appModel)
+                    .frame(width: 360)
+
+                CompanionSettingsView()
+                    .environmentObject(appModel)
+                    .frame(width: 360)
+            }
 
             VStack(spacing: 16) {
                 ControllerDiagramView()
@@ -397,6 +403,84 @@ private struct NoControllerHelpView: View {
                 .foregroundStyle(.secondary)
             Button("Open System Settings") {
                 NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+    }
+}
+
+private struct CompanionSettingsView: View {
+    @EnvironmentObject private var appModel: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Companion")
+                    .font(.headline)
+                Spacer()
+                Text(appModel.companionStatusText)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+            }
+
+            Picker("Mode", selection: Binding(
+                get: { appModel.companionMode },
+                set: { appModel.setCompanionMode($0) }
+            )) {
+                ForEach(CompanionMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Picker("Handoff edge", selection: Binding(
+                get: { appModel.companionEdge },
+                set: { appModel.setCompanionEdge($0) }
+            )) {
+                ForEach(CompanionEdge.allCases) { edge in
+                    Text(edge.displayName).tag(edge)
+                }
+            }
+            .pickerStyle(.menu)
+
+            if appModel.companionMode == .controller {
+                Picker("Receiver", selection: Binding(
+                    get: { appModel.selectedCompanionPeerID ?? "" },
+                    set: { appModel.selectCompanionPeer($0.isEmpty ? nil : $0) }
+                )) {
+                    Text("Auto / first available").tag("")
+                    ForEach(appModel.discoveredCompanionPeers) { peer in
+                        Text(peer.name).tag(peer.id)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                HStack(spacing: 10) {
+                    Button("Connect") {
+                        appModel.connectSelectedCompanionPeer()
+                    }
+                    .disabled(appModel.discoveredCompanionPeers.isEmpty)
+
+                    Button("Disconnect") {
+                        appModel.disconnectCompanion()
+                    }
+                }
+            } else if appModel.companionMode == .receiver {
+                Text("Run this mode on the second Mac. It advertises itself on the local network and accepts forwarded pointer, click, scroll, and shortcut events.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            if appModel.companionMode != .off {
+                Text("This is the advanced route: when the local cursor pushes through the selected edge, Vibe Controller forwards motion and desktop actions to the other Mac until the remote cursor reaches the return edge.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

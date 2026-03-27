@@ -57,8 +57,14 @@ cat > "$APP_DIR/Contents/Info.plist" <<'EOF'
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_vibectl._tcp</string>
+  </array>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Vibe Controller uses the local network to forward pointer and shortcut events between your Macs.</string>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
   <key>NSPrincipalClass</key>

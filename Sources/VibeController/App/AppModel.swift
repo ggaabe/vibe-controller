@@ -75,26 +75,36 @@ final class AppModel: ObservableObject {
     @Published private(set) var controllerInputEvents: Int = 0
     @Published private(set) var lastControllerActivityAt: Date?
     @Published private(set) var cursorDiagnostics: CursorDiagnostics = .initial
+    @Published private(set) var companionMode: CompanionMode
+    @Published private(set) var companionEdge: CompanionEdge
+    @Published private(set) var discoveredCompanionPeers: [CompanionPeer] = []
+    @Published private(set) var selectedCompanionPeerID: String?
+    @Published private(set) var companionConnectionState: CompanionConnectionState = .off
+    @Published private(set) var isRoutingToCompanion = false
     @Published var presentedSheet: ControllerSheetSelection?
     @Published var lastErrorMessage: String?
 
     let controllerManager: ControllerManager
     let permissionManager: PermissionManager
+    let companionManager: CompanionManager
 
     private let profileStore: ProfileStore
     private let cursorEngine: CursorEngine
     private let actionEngine: ActionEngine
+    private let userDefaults = UserDefaults.standard
     private var cancellables = Set<AnyCancellable>()
 
     init(
         profileStore: ProfileStore = ProfileStore(),
         controllerManager: ControllerManager = ControllerManager(),
         permissionManager: PermissionManager = PermissionManager(),
+        companionManager: CompanionManager = CompanionManager(),
         cursorEngine: CursorEngine = CursorEngine()
     ) {
         self.profileStore = profileStore
         self.controllerManager = controllerManager
         self.permissionManager = permissionManager
+        self.companionManager = companionManager
         self.cursorEngine = cursorEngine
         self.actionEngine = ActionEngine(cursorEngine: cursorEngine)
 
@@ -105,6 +115,9 @@ final class AppModel: ObservableObject {
         self.accessibilityTrusted = permissionManager.accessibilityTrusted
         self.isRuntimeEnabled = profileStore.loadEnabledState()
         self.isAppFrontmost = NSApp.isActive
+        self.companionMode = CompanionMode(rawValue: userDefaults.string(forKey: Self.companionModeKey) ?? "") ?? .off
+        self.companionEdge = CompanionEdge(rawValue: userDefaults.string(forKey: Self.companionEdgeKey) ?? "") ?? .right
+        self.selectedCompanionPeerID = userDefaults.string(forKey: Self.selectedPeerKey)
 
         cursorEngine.isEnabled = isRuntimeEnabled
         cursorEngine.accessibilityTrusted = accessibilityTrusted
@@ -113,18 +126,51 @@ final class AppModel: ObservableObject {
         actionEngine.onToggleCursorSpeeds = { [weak self] in
             self?.toggleCursorSpeeds()
         }
+        actionEngine.companionDispatch = { [weak self] event in
+            self?.dispatchCompanionEvent(event) ?? false
+        }
         cursorEngine.onDiagnostics = { [weak self] diagnostics in
             self?.cursorDiagnostics = diagnostics
+        }
+        cursorEngine.movementInterceptor = { [weak self] currentLocation, delta in
+            self?.interceptCursorMovement(currentLocation: currentLocation, delta: delta) ?? false
         }
 
         controllerManager.onSnapshot = { [weak self] snapshot in
             self?.handleControllerSnapshot(snapshot)
+        }
+        companionManager.onMessage = { [weak self] message in
+            self?.handleCompanionMessage(message)
         }
 
         permissionManager.$accessibilityTrusted
             .receive(on: RunLoop.main)
             .sink { [weak self] trusted in
                 self?.handlePermissionChange(trusted)
+            }
+            .store(in: &cancellables)
+
+        companionManager.$discoveredPeers
+            .receive(on: RunLoop.main)
+            .sink { [weak self] peers in
+                self?.discoveredCompanionPeers = peers
+                if self?.selectedCompanionPeerID == nil, let first = peers.first {
+                    self?.selectCompanionPeer(first.id)
+                } else if let selected = self?.selectedCompanionPeerID,
+                          peers.contains(where: { $0.id == selected }) == false {
+                    self?.selectCompanionPeer(peers.first?.id)
+                }
+            }
+            .store(in: &cancellables)
+
+        companionManager.$connectionState
+            .receive(on: RunLoop.main)
+            .sink { [weak self] state in
+                self?.companionConnectionState = state
+                if case .connected = state {
+                    return
+                }
+                self?.isRoutingToCompanion = false
             }
             .store(in: &cancellables)
 
@@ -152,6 +198,7 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
 
         persistDocument()
+        companionManager.setMode(companionMode)
         syncCursorConfiguration()
         if controllerSnapshot.isConnected {
             actionEngine.process(snapshot: controllerSnapshot, profile: activeProfile)
@@ -215,6 +262,46 @@ final class AppModel: ObservableObject {
             right.y,
             pressedSummary
         )
+    }
+
+    var companionStatusText: String {
+        if isRoutingToCompanion {
+            return "Routing to remote Mac"
+        }
+        return companionConnectionState.summary
+    }
+
+    func setCompanionMode(_ mode: CompanionMode) {
+        guard companionMode != mode else { return }
+        companionMode = mode
+        userDefaults.set(mode.rawValue, forKey: Self.companionModeKey)
+        isRoutingToCompanion = false
+        companionManager.setMode(mode)
+        refreshCompanionState()
+    }
+
+    func setCompanionEdge(_ edge: CompanionEdge) {
+        companionEdge = edge
+        userDefaults.set(edge.rawValue, forKey: Self.companionEdgeKey)
+    }
+
+    func selectCompanionPeer(_ peerID: String?) {
+        selectedCompanionPeerID = peerID
+        userDefaults.set(peerID, forKey: Self.selectedPeerKey)
+    }
+
+    func connectSelectedCompanionPeer() {
+        guard companionMode == .controller else { return }
+        if let selectedCompanionPeerID {
+            companionManager.connect(to: selectedCompanionPeerID)
+        }
+        refreshCompanionState()
+    }
+
+    func disconnectCompanion() {
+        isRoutingToCompanion = false
+        companionManager.disconnect()
+        refreshCompanionState()
     }
 
     func selectProfile(_ profileID: String) {
@@ -429,6 +516,127 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func refreshCompanionState() {
+        discoveredCompanionPeers = companionManager.discoveredPeers
+        companionConnectionState = companionManager.connectionState
+    }
+
+    private func interceptCursorMovement(currentLocation: CGPoint, delta: SIMD2<Double>) -> Bool {
+        guard companionMode == .controller else { return false }
+        guard case .connected = companionConnectionState else { return false }
+
+        if isRoutingToCompanion {
+            companionManager.send(.pointerDelta(dx: delta.x, dy: delta.y))
+            return true
+        }
+
+        guard shouldBeginRemoteHandoff(at: currentLocation, delta: delta) else {
+            return false
+        }
+
+        isRoutingToCompanion = true
+        companionManager.send(.pointerDelta(dx: delta.x, dy: delta.y))
+        return true
+    }
+
+    private func dispatchCompanionEvent(_ event: CompanionControlEvent) -> Bool {
+        guard companionMode == .controller, isRoutingToCompanion else { return false }
+        switch event.payload {
+        case .mouse(let button, let phase):
+            companionManager.send(.mouse(button: button, phase: phase))
+        case .scroll(let vertical, let horizontal):
+            companionManager.send(.scroll(vertical: vertical, horizontal: horizontal))
+        case .shortcut(let shortcut, let phase):
+            companionManager.send(.shortcut(shortcut, phase: phase))
+        case .spaceSwitch(let direction):
+            companionManager.send(.spaceSwitch(direction))
+        }
+        return true
+    }
+
+    private func handleCompanionMessage(_ message: CompanionMessage) {
+        switch message.type {
+        case .hello:
+            refreshCompanionState()
+        case .pointerDelta:
+            guard companionMode == .receiver,
+                  let dx = message.dx,
+                  let dy = message.dy else { return }
+            let delta = SIMD2<Double>(dx, dy)
+            if shouldReturnToLocal(delta: delta) {
+                companionManager.send(.handoffBack)
+                return
+            }
+            cursorEngine.applyExternalDelta(delta)
+        case .mouse:
+            guard companionMode == .receiver,
+                  let button = message.button,
+                  let phase = message.phase else { return }
+            actionEngine.performCompanionEvent(
+                CompanionControlEvent(payload: .mouse(button: button, phase: phase))
+            )
+        case .scroll:
+            guard companionMode == .receiver,
+                  let vertical = message.vertical,
+                  let horizontal = message.horizontal else { return }
+            actionEngine.performCompanionEvent(
+                CompanionControlEvent(payload: .scroll(vertical: vertical, horizontal: horizontal))
+            )
+        case .shortcut:
+            guard companionMode == .receiver,
+                  let shortcut = message.shortcut,
+                  let phase = message.shortcutPhase else { return }
+            actionEngine.performCompanionEvent(
+                CompanionControlEvent(payload: .shortcut(shortcut, phase: phase))
+            )
+        case .spaceSwitch:
+            guard companionMode == .receiver,
+                  let direction = message.spaceSwitchDirection else { return }
+            actionEngine.performCompanionEvent(
+                CompanionControlEvent(payload: .spaceSwitch(direction))
+            )
+        case .handoffBack:
+            isRoutingToCompanion = false
+        }
+    }
+
+    private func shouldBeginRemoteHandoff(at location: CGPoint, delta: SIMD2<Double>) -> Bool {
+        let bounds = visibleDesktopBounds()
+        let threshold = 2.0
+        switch companionEdge {
+        case .left:
+            return location.x <= bounds.minX + threshold && delta.x < 0
+        case .right:
+            return location.x >= bounds.maxX - threshold && delta.x > 0
+        case .top:
+            return location.y >= bounds.maxY - threshold && delta.y > 0
+        case .bottom:
+            return location.y <= bounds.minY + threshold && delta.y < 0
+        }
+    }
+
+    private func shouldReturnToLocal(delta: SIMD2<Double>) -> Bool {
+        let location = cursorEngine.currentCursorPosition()
+        let bounds = visibleDesktopBounds()
+        let threshold = 2.0
+        switch companionEdge.opposite {
+        case .left:
+            return location.x <= bounds.minX + threshold && delta.x < 0
+        case .right:
+            return location.x >= bounds.maxX - threshold && delta.x > 0
+        case .top:
+            return location.y >= bounds.maxY - threshold && delta.y > 0
+        case .bottom:
+            return location.y <= bounds.minY + threshold && delta.y < 0
+        }
+    }
+
+    private func visibleDesktopBounds() -> CGRect {
+        NSScreen.screens.reduce(into: CGRect.null) { result, screen in
+            result = result.union(screen.frame)
+        }
+    }
+
     private func syncCursorConfiguration() {
         cursorEngine.isEnabled = isRuntimeEnabled
         actionEngine.isEnabled = isRuntimeEnabled
@@ -456,9 +664,16 @@ final class AppModel: ObservableObject {
     }
 
     private func shutdown() {
+        companionManager.disconnect()
         actionEngine.cancelAll()
         cursorEngine.releaseTransientState()
     }
+}
+
+private extension AppModel {
+    static let companionModeKey = "companion.mode"
+    static let companionEdgeKey = "companion.edge"
+    static let selectedPeerKey = "companion.selectedPeer"
 }
 
 private extension ControllerControlID {

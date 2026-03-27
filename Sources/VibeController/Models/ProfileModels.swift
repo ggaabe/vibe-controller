@@ -12,6 +12,8 @@ enum ActionType: String, Codable, CaseIterable, Identifiable, Sendable {
     case scrollDown
     case scrollLeft
     case scrollRight
+    case switchSpaceLeft
+    case switchSpaceRight
     case toggleCursorSpeeds
 
     var id: String { rawValue }
@@ -40,6 +42,10 @@ enum ActionType: String, Codable, CaseIterable, Identifiable, Sendable {
             return "Scroll Left"
         case .scrollRight:
             return "Scroll Right"
+        case .switchSpaceLeft:
+            return "Switch Space Left"
+        case .switchSpaceRight:
+            return "Switch Space Right"
         case .toggleCursorSpeeds:
             return "Toggle Cursor Speeds"
         }
@@ -55,6 +61,8 @@ enum ActionType: String, Codable, CaseIterable, Identifiable, Sendable {
             return .holdWhilePressed
         case .scrollUp, .scrollDown, .scrollLeft, .scrollRight:
             return .repeatWhileHeld
+        case .switchSpaceLeft, .switchSpaceRight:
+            return .tap
         case .toggleCursorSpeeds:
             return .tap
         case .none:
@@ -71,6 +79,8 @@ enum ActionType: String, Codable, CaseIterable, Identifiable, Sendable {
         case .leftMouseHold:
             return [.holdWhilePressed, .toggle]
         case .scrollUp, .scrollDown, .scrollLeft, .scrollRight:
+            return [.tap, .repeatWhileHeld]
+        case .switchSpaceLeft, .switchSpaceRight:
             return [.tap, .repeatWhileHeld]
         case .toggleCursorSpeeds:
             return [.tap]

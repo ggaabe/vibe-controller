@@ -7,6 +7,7 @@ final class ActionEngine {
     var accessibilityTrusted = false
     var suspendActionExecution = false
     var onToggleCursorSpeeds: (() -> Void)?
+    var companionDispatch: ((CompanionControlEvent) -> Bool)?
 
     private let cursorEngine: CursorEngine
     private let eventSource = CGEventSource(stateID: .combinedSessionState)
@@ -100,6 +101,16 @@ final class ActionEngine {
         switch mapping.actionType {
         case .keyboardShortcut:
             guard let shortcut = mapping.shortcut else { return }
+            if dispatchToCompanion(.shortcut(shortcut, phase: .down)) {
+                activeStates[control] = ActiveControlState(
+                    shortcut: shortcut,
+                    isHoldingShortcut: true,
+                    isDragging: false,
+                    isToggledOn: false,
+                    timer: nil
+                )
+                return
+            }
             postShortcutDown(shortcut)
             activeStates[control] = ActiveControlState(
                 shortcut: shortcut,
@@ -109,6 +120,16 @@ final class ActionEngine {
                 timer: nil
             )
         case .leftMouseHold:
+            if dispatchToCompanion(.mouse(button: .left, phase: .down)) {
+                activeStates[control] = ActiveControlState(
+                    shortcut: nil,
+                    isHoldingShortcut: false,
+                    isDragging: true,
+                    isToggledOn: false,
+                    timer: nil
+                )
+                return
+            }
             cursorEngine.beginLeftDrag()
             activeStates[control] = ActiveControlState(
                 shortcut: nil,
@@ -125,10 +146,14 @@ final class ActionEngine {
     private func endHoldAction(for control: ControllerControlID) {
         guard let state = activeStates[control] else { return }
         if state.isHoldingShortcut, let shortcut = state.shortcut {
-            postShortcutUp(shortcut)
+            if !dispatchToCompanion(.shortcut(shortcut, phase: .up)) {
+                postShortcutUp(shortcut)
+            }
         }
         if state.isDragging {
-            cursorEngine.endLeftDrag()
+            if !dispatchToCompanion(.mouse(button: .left, phase: .up)) {
+                cursorEngine.endLeftDrag()
+            }
         }
         activeStates[control] = nil
     }
@@ -161,9 +186,13 @@ final class ActionEngine {
         let isOn = activeStates[control]?.isToggledOn ?? false
         if isOn {
             if mapping.actionType == .leftMouseHold {
-                cursorEngine.endLeftDrag()
+                if !dispatchToCompanion(.mouse(button: .left, phase: .up)) {
+                    cursorEngine.endLeftDrag()
+                }
             } else if mapping.actionType == .keyboardShortcut, let shortcut = activeStates[control]?.shortcut {
-                postShortcutUp(shortcut)
+                if !dispatchToCompanion(.shortcut(shortcut, phase: .up)) {
+                    postShortcutUp(shortcut)
+                }
             }
             activeStates[control] = nil
             return
@@ -171,6 +200,16 @@ final class ActionEngine {
 
         switch mapping.actionType {
         case .leftMouseHold:
+            if dispatchToCompanion(.mouse(button: .left, phase: .down)) {
+                activeStates[control] = ActiveControlState(
+                    shortcut: nil,
+                    isHoldingShortcut: false,
+                    isDragging: true,
+                    isToggledOn: true,
+                    timer: nil
+                )
+                return
+            }
             cursorEngine.beginLeftDrag()
             activeStates[control] = ActiveControlState(
                 shortcut: nil,
@@ -181,6 +220,16 @@ final class ActionEngine {
             )
         case .keyboardShortcut:
             guard let shortcut = mapping.shortcut else { return }
+            if dispatchToCompanion(.shortcut(shortcut, phase: .down)) {
+                activeStates[control] = ActiveControlState(
+                    shortcut: shortcut,
+                    isHoldingShortcut: true,
+                    isDragging: false,
+                    isToggledOn: true,
+                    timer: nil
+                )
+                return
+            }
             postShortcutDown(shortcut)
             activeStates[control] = ActiveControlState(
                 shortcut: shortcut,
@@ -200,25 +249,65 @@ final class ActionEngine {
             return
         case .keyboardShortcut:
             guard let shortcut = mapping.shortcut else { return }
+            if dispatchToCompanion(.shortcut(shortcut, phase: .tap)) {
+                return
+            }
             postShortcutTap(shortcut)
         case .leftClick:
+            if dispatchToCompanion(.mouse(button: .left, phase: .click)) {
+                return
+            }
             postMouseClick(button: .left)
         case .rightClick:
+            if dispatchToCompanion(.mouse(button: .right, phase: .click)) {
+                return
+            }
             postMouseClick(button: .right)
         case .middleClick:
+            if dispatchToCompanion(.mouse(button: .middle, phase: .click)) {
+                return
+            }
             postMouseClick(button: .center)
         case .leftMouseHold:
+            if dispatchToCompanion(.mouse(button: .left, phase: .down)) {
+                return
+            }
             cursorEngine.beginLeftDrag()
         case .doubleClick:
+            if dispatchToCompanion(.mouse(button: .left, phase: .doubleClick)) {
+                return
+            }
             postDoubleClick()
         case .scrollUp:
+            if dispatchToCompanion(.scroll(vertical: 1, horizontal: 0)) {
+                return
+            }
             postScroll(vertical: 1, horizontal: 0)
         case .scrollDown:
+            if dispatchToCompanion(.scroll(vertical: -1, horizontal: 0)) {
+                return
+            }
             postScroll(vertical: -1, horizontal: 0)
         case .scrollLeft:
+            if dispatchToCompanion(.scroll(vertical: 0, horizontal: -1)) {
+                return
+            }
             postScroll(vertical: 0, horizontal: -1)
         case .scrollRight:
+            if dispatchToCompanion(.scroll(vertical: 0, horizontal: 1)) {
+                return
+            }
             postScroll(vertical: 0, horizontal: 1)
+        case .switchSpaceLeft:
+            if dispatchToCompanion(.spaceSwitch(.left)) {
+                return
+            }
+            triggerSpaceSwitch(.left)
+        case .switchSpaceRight:
+            if dispatchToCompanion(.spaceSwitch(.right)) {
+                return
+            }
+            triggerSpaceSwitch(.right)
         case .toggleCursorSpeeds:
             onToggleCursorSpeeds?()
         }
@@ -336,6 +425,73 @@ final class ActionEngine {
             return
         }
         event.post(tap: CGEventTapLocation.cghidEventTap)
+    }
+
+    func performCompanionEvent(_ event: CompanionControlEvent) {
+        guard isEnabled, accessibilityTrusted else { return }
+        switch event.payload {
+        case .mouse(let button, let phase):
+            performCompanionMouse(button: button, phase: phase)
+        case .scroll(let vertical, let horizontal):
+            postScroll(vertical: vertical, horizontal: horizontal)
+        case .shortcut(let shortcut, let phase):
+            switch phase {
+            case .tap:
+                postShortcutTap(shortcut)
+            case .down:
+                postShortcutDown(shortcut)
+            case .up:
+                postShortcutUp(shortcut)
+            }
+        case .spaceSwitch(let direction):
+            triggerSpaceSwitch(direction)
+        }
+    }
+
+    private func performCompanionMouse(button: CompanionMouseButton, phase: CompanionMousePhase) {
+        switch (button, phase) {
+        case (.left, .down):
+            cursorEngine.beginLeftDrag()
+        case (.left, .up):
+            cursorEngine.endLeftDrag()
+        case (.left, .click):
+            postMouseClick(button: .left)
+        case (.right, .click):
+            postMouseClick(button: .right)
+        case (.middle, .click):
+            postMouseClick(button: .center)
+        case (.left, .doubleClick):
+            postDoubleClick()
+        case (.right, .doubleClick), (.middle, .doubleClick), (_, .down), (_, .up):
+            break
+        }
+    }
+
+    private func dispatchToCompanion(_ payload: CompanionControlEvent.Payload) -> Bool {
+        companionDispatch?(CompanionControlEvent(payload: payload)) ?? false
+    }
+
+    private func triggerSpaceSwitch(_ direction: SpaceSwitchDirection) {
+        let keyCode: Int = direction == .left ? 123 : 124
+        let scriptSource = """
+        tell application "System Events"
+            key code \(keyCode) using control down
+        end tell
+        """
+
+        if let script = NSAppleScript(source: scriptSource) {
+            var scriptError: NSDictionary?
+            script.executeAndReturnError(&scriptError)
+            if scriptError == nil {
+                return
+            }
+        }
+
+        let fallback = ShortcutDescriptor(
+            keyCode: UInt16(keyCode),
+            modifiers: [.control]
+        )
+        postShortcutTap(fallback)
     }
 }
 
