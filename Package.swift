@@ -11,6 +11,7 @@ let package = Package(
     products: [
         .executable(name: "VibeController", targets: ["VibeController"]),
         .executable(name: "ControllerProbe", targets: ["ControllerProbe"]),
+        .executable(name: "VirtualHIDExperiment", targets: ["VirtualHIDExperiment"]),
     ],
     targets: [
         .executableTarget(
@@ -18,6 +19,9 @@ let package = Package(
         ),
         .executableTarget(
             name: "ControllerProbe"
+        ),
+        .executableTarget(
+            name: "VirtualHIDExperiment"
         ),
         .testTarget(
             name: "VibeControllerTests",

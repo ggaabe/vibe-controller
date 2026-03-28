@@ -7,6 +7,7 @@ final class ActionEngine {
     var accessibilityTrusted = false
     var suspendActionExecution = false
     var onToggleCursorSpeeds: (() -> Void)?
+    var onActionStatus: ((String) -> Void)?
     var companionDispatch: ((CompanionControlEvent) -> Bool)?
 
     private let cursorEngine: CursorEngine
@@ -473,6 +474,8 @@ final class ActionEngine {
 
     private func triggerSpaceSwitch(_ direction: SpaceSwitchDirection) {
         let keyCode: Int = direction == .left ? 123 : 124
+        let directionLabel = direction == .left ? "left" : "right"
+        var scriptFailureMessage: String?
         let scriptSource = """
         tell application "System Events"
             key code \(keyCode) using control down
@@ -483,8 +486,11 @@ final class ActionEngine {
             var scriptError: NSDictionary?
             script.executeAndReturnError(&scriptError)
             if scriptError == nil {
+                onActionStatus?("Switched Space \(directionLabel) via System Events.")
                 return
             }
+
+            scriptFailureMessage = scriptError?[NSAppleScript.errorMessage] as? String ?? "unknown AppleScript error"
         }
 
         let fallback = ShortcutDescriptor(
@@ -492,6 +498,78 @@ final class ActionEngine {
             modifiers: [.control]
         )
         postShortcutTap(fallback)
+
+        let fallbackLabel = "Control-\(direction == .left ? "Left" : "Right")"
+        if hasEnabledSystemShortcut(keyCode: keyCode, requiredFlags: [.maskControl]) {
+            if let scriptFailureMessage {
+                onActionStatus?("System Events failed for Space \(directionLabel): \(scriptFailureMessage). Sent \(fallbackLabel) fallback.")
+            } else {
+                onActionStatus?("Sent \(fallbackLabel) for Space \(directionLabel).")
+            }
+        } else {
+            let base = "Sent \(fallbackLabel), but this Mac does not have a matching Mission Control keyboard shortcut enabled."
+            if let scriptFailureMessage {
+                onActionStatus?("System Events failed for Space \(directionLabel): \(scriptFailureMessage). \(base)")
+            } else {
+                onActionStatus?("\(base) Assign one in Keyboard Shortcuts > Mission Control.")
+            }
+        }
+    }
+
+    private func hasEnabledSystemShortcut(keyCode: Int, requiredFlags: CGEventFlags) -> Bool {
+        guard let domain = UserDefaults.standard.persistentDomain(forName: "com.apple.symbolichotkeys"),
+              let symbolicHotKeys = domain["AppleSymbolicHotKeys"] as? [String: Any] else {
+            return false
+        }
+
+        for value in symbolicHotKeys.values {
+            guard let entry = value as? [String: Any],
+                  shortcutEntryIsEnabled(entry),
+                  let parameters = shortcutParameters(from: entry),
+                  parameters.count >= 3,
+                  numericValue(parameters[1]) == keyCode else {
+                continue
+            }
+
+            let modifierFlags = CGEventFlags(rawValue: UInt64(numericValue(parameters[2]) ?? 0))
+            if modifierFlags.contains(requiredFlags) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func shortcutEntryIsEnabled(_ entry: [String: Any]) -> Bool {
+        if let enabled = entry["enabled"] as? Int {
+            return enabled != 0
+        }
+        if let enabled = entry["enabled"] as? Bool {
+            return enabled
+        }
+        if let enabled = entry["enabled"] as? NSNumber {
+            return enabled.intValue != 0
+        }
+        return false
+    }
+
+    private func shortcutParameters(from entry: [String: Any]) -> [Any]? {
+        guard let value = entry["value"] as? [String: Any],
+              (value["type"] as? String) == "standard",
+              let parameters = value["parameters"] as? [Any] else {
+            return nil
+        }
+        return parameters
+    }
+
+    private func numericValue(_ value: Any) -> Int? {
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        if let intValue = value as? Int {
+            return intValue
+        }
+        return nil
     }
 }
 

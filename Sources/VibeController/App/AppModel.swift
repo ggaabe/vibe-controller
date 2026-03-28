@@ -75,6 +75,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var controllerInputEvents: Int = 0
     @Published private(set) var lastControllerActivityAt: Date?
     @Published private(set) var cursorDiagnostics: CursorDiagnostics = .initial
+    @Published private(set) var lastActionStatus = "Idle"
     @Published private(set) var companionMode: CompanionMode
     @Published private(set) var companionEdge: CompanionEdge
     @Published private(set) var discoveredCompanionPeers: [CompanionPeer] = []
@@ -125,6 +126,9 @@ final class AppModel: ObservableObject {
         actionEngine.accessibilityTrusted = accessibilityTrusted
         actionEngine.onToggleCursorSpeeds = { [weak self] in
             self?.toggleCursorSpeeds()
+        }
+        actionEngine.onActionStatus = { [weak self] message in
+            self?.lastActionStatus = message
         }
         actionEngine.companionDispatch = { [weak self] event in
             self?.dispatchCompanionEvent(event) ?? false

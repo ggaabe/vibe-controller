@@ -131,6 +131,13 @@ struct MainWindowView: View {
                 symbol: "cursorarrow.motionlines",
                 tint: appModel.cursorDiagnostics.state == .moving ? .blue : .secondary
             )
+            DiagnosticCard(
+                title: "Actions",
+                value: appModel.lastActionStatus,
+                detail: "Space switching and desktop action feedback.",
+                symbol: "sparkles",
+                tint: .secondary
+            )
             VStack(alignment: .leading, spacing: 8) {
                 Text("Test")
                     .font(.caption.weight(.semibold))

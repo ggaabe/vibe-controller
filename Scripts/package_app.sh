@@ -61,6 +61,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<'EOF'
   <array>
     <string>_vibectl._tcp</string>
   </array>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Vibe Controller uses System Events to trigger Mission Control and Space-switching shortcuts.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSLocalNetworkUsageDescription</key>
