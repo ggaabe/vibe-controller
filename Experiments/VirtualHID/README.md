@@ -33,6 +33,10 @@ This is not yet proof that it will participate in Universal Control edge handoff
   Attempts the lower-level `IOHIDUserDeviceCreateWithProperties` route directly.
 - `swift run VirtualHIDExperiment --iokit-demo-motion`
   Attempts the lower-level route and, if creation succeeds, dispatches a few relative-motion reports.
+- `./Scripts/check_virtual_hid_provisioning.sh`
+  Inspects installed signing identities and provisioning profiles for the required virtual HID entitlement.
+- `./Scripts/package_virtual_hid_lab.sh`
+  Bundles the experiment as `dist/Virtual HID Lab.app` and signs it with the requested virtual HID entitlement.
 
 ## Current findings
 
@@ -40,6 +44,7 @@ This is not yet proof that it will participate in Universal Control edge handoff
 - Both the `CoreHID.HIDVirtualDevice` path and the lower-level `IOHIDUserDeviceCreateWithProperties` path currently fail to instantiate a virtual mouse on this machine.
 - System logs show `IOServiceOpen:0xe00002c2`, which maps to `kIOReturnBadArgument`.
 - Apple’s `IOHIDUserDevice.h` header explicitly says the entitlement `com.apple.developer.hid.virtual.device` is required to create a virtual HID device.
+- This Mac currently has no installed provisioning profile that grants `com.apple.developer.hid.virtual.device`.
 
 ## Next steps
 
