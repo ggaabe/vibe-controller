@@ -82,6 +82,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var selectedCompanionPeerID: String?
     @Published private(set) var companionConnectionState: CompanionConnectionState = .off
     @Published private(set) var isRoutingToCompanion = false
+    @Published private(set) var companionRemoteBuildSummary = "Waiting for peer metadata"
+    @Published private(set) var companionHandoffDebug = "No handoff activity yet."
     @Published var presentedSheet: ControllerSheetSelection?
     @Published var lastErrorMessage: String?
 
@@ -93,6 +95,7 @@ final class AppModel: ObservableObject {
     private let cursorEngine: CursorEngine
     private let actionEngine: ActionEngine
     private let userDefaults = UserDefaults.standard
+    private var lastLocalHandoffRestorePoint: CGPoint?
     private var cancellables = Set<AnyCancellable>()
 
     init(
@@ -280,6 +283,8 @@ final class AppModel: ObservableObject {
         companionMode = mode
         userDefaults.set(mode.rawValue, forKey: Self.companionModeKey)
         isRoutingToCompanion = false
+        companionRemoteBuildSummary = "Waiting for peer metadata"
+        companionHandoffDebug = "No handoff activity yet."
         companionManager.setMode(mode)
         refreshCompanionState()
     }
@@ -304,8 +309,43 @@ final class AppModel: ObservableObject {
 
     func disconnectCompanion() {
         isRoutingToCompanion = false
+        companionRemoteBuildSummary = "Waiting for peer metadata"
+        companionHandoffDebug = "Disconnected."
         companionManager.disconnect()
         refreshCompanionState()
+    }
+
+    func forceCompanionHandoff() {
+        guard companionMode == .controller else { return }
+        guard case .connected = companionConnectionState else {
+            companionHandoffDebug = "[Controller] cannot force handoff: not connected."
+            return
+        }
+        let currentLocation = cursorEngine.currentCursorPosition()
+        let bounds = visibleDesktopBounds()
+        lastLocalHandoffRestorePoint = restorePointForLocalMac(from: currentLocation, in: bounds)
+        isRoutingToCompanion = true
+        companionHandoffDebug = "[Controller] forced handoff from \(Int(currentLocation.x)), \(Int(currentLocation.y))"
+        companionManager.send(
+            .handoffStart(
+                edge: companionEdge,
+                normalizedPosition: normalizedPosition(for: currentLocation, in: bounds, edge: companionEdge)
+            )
+        )
+    }
+
+    func forceReturnLocal() {
+        guard companionMode == .controller else { return }
+        if isRoutingToCompanion {
+            companionManager.send(.handoffBack)
+        }
+        isRoutingToCompanion = false
+        if let restorePoint = lastLocalHandoffRestorePoint {
+            companionHandoffDebug = "[Controller] forced local return at \(Int(restorePoint.x)), \(Int(restorePoint.y))"
+            cursorEngine.positionCursor(at: restorePoint)
+        } else {
+            companionHandoffDebug = "[Controller] forced local return with no restore point."
+        }
     }
 
     func selectProfile(_ profileID: String) {
@@ -337,7 +377,7 @@ final class AppModel: ObservableObject {
 
     func resetActiveProfileToDefaults() {
         updateActiveProfile { profile in
-            let defaults = ControllerProfile.desktopControl
+            let defaults = ControllerProfile.gabesDefaults
             profile.cursor = defaults.cursor
             profile.mappings = defaults.mappings
         }
@@ -528,17 +568,35 @@ final class AppModel: ObservableObject {
     private func interceptCursorMovement(currentLocation: CGPoint, delta: SIMD2<Double>) -> Bool {
         guard companionMode == .controller else { return false }
         guard case .connected = companionConnectionState else { return false }
+        let bounds = visibleDesktopBounds()
+        let projectedLocation = projectedCursorLocation(from: currentLocation, delta: delta, in: bounds)
+        let willBeginHandoff = shouldBeginRemoteHandoff(at: currentLocation, delta: delta, bounds: bounds)
+        companionHandoffDebug = handoffDebugSummary(
+            modeLabel: "Controller",
+            label: isRoutingToCompanion ? "remote" : "local",
+            location: currentLocation,
+            projected: projectedLocation,
+            bounds: bounds,
+            triggered: willBeginHandoff
+        )
 
         if isRoutingToCompanion {
             companionManager.send(.pointerDelta(dx: delta.x, dy: delta.y))
             return true
         }
 
-        guard shouldBeginRemoteHandoff(at: currentLocation, delta: delta) else {
+        guard willBeginHandoff else {
             return false
         }
 
+        lastLocalHandoffRestorePoint = restorePointForLocalMac(from: currentLocation, in: bounds)
         isRoutingToCompanion = true
+        companionManager.send(
+            .handoffStart(
+                edge: companionEdge,
+                normalizedPosition: normalizedPosition(for: projectedLocation, in: bounds, edge: companionEdge)
+            )
+        )
         companionManager.send(.pointerDelta(dx: delta.x, dy: delta.y))
         return true
     }
@@ -561,13 +619,25 @@ final class AppModel: ObservableObject {
     private func handleCompanionMessage(_ message: CompanionMessage) {
         switch message.type {
         case .hello:
+            let name = message.name ?? "Unknown peer"
+            let protocolSummary = message.protocolVersion.map { "protocol \($0)" } ?? "protocol ?"
+            let buildSummary = message.buildVersion ?? "build unknown"
+            companionRemoteBuildSummary = "\(name) • \(protocolSummary) • \(buildSummary)"
             refreshCompanionState()
+        case .handoffStart:
+            guard companionMode == .receiver,
+                  let edge = message.edge,
+                  let normalizedPosition = message.normalizedPosition else { return }
+            let target = remoteEntryPoint(for: edge, normalizedPosition: normalizedPosition, in: visibleDesktopBounds())
+            companionHandoffDebug = "[Receiver] entry: \(edge.displayName) at \(Int(target.x)), \(Int(target.y))"
+            cursorEngine.positionCursor(at: target)
         case .pointerDelta:
             guard companionMode == .receiver,
                   let dx = message.dx,
                   let dy = message.dy else { return }
             let delta = SIMD2<Double>(dx, dy)
             if shouldReturnToLocal(delta: delta) {
+                companionHandoffDebug = "[Receiver] return edge reached. Handing control back."
                 companionManager.send(.handoffBack)
                 return
             }
@@ -601,21 +671,29 @@ final class AppModel: ObservableObject {
             )
         case .handoffBack:
             isRoutingToCompanion = false
+            if let restorePoint = lastLocalHandoffRestorePoint {
+                companionHandoffDebug = "[Controller] returned locally at \(Int(restorePoint.x)), \(Int(restorePoint.y))"
+                cursorEngine.positionCursor(at: restorePoint)
+            }
         }
     }
 
     private func shouldBeginRemoteHandoff(at location: CGPoint, delta: SIMD2<Double>) -> Bool {
-        let bounds = visibleDesktopBounds()
+        shouldBeginRemoteHandoff(at: location, delta: delta, bounds: visibleDesktopBounds())
+    }
+
+    private func shouldBeginRemoteHandoff(at location: CGPoint, delta: SIMD2<Double>, bounds: CGRect) -> Bool {
         let threshold = 2.0
+        let projectedLocation = projectedCursorLocation(from: location, delta: delta, in: bounds)
         switch companionEdge {
         case .left:
-            return location.x <= bounds.minX + threshold && delta.x < 0
+            return (location.x <= bounds.minX + threshold || projectedLocation.x <= bounds.minX + threshold) && delta.x < 0
         case .right:
-            return location.x >= bounds.maxX - threshold && delta.x > 0
+            return (location.x >= bounds.maxX - threshold || projectedLocation.x >= bounds.maxX - threshold) && delta.x > 0
         case .top:
-            return location.y >= bounds.maxY - threshold && delta.y > 0
+            return (location.y >= bounds.maxY - threshold || projectedLocation.y >= bounds.maxY - threshold) && delta.y > 0
         case .bottom:
-            return location.y <= bounds.minY + threshold && delta.y < 0
+            return (location.y <= bounds.minY + threshold || projectedLocation.y <= bounds.minY + threshold) && delta.y < 0
         }
     }
 
@@ -623,22 +701,98 @@ final class AppModel: ObservableObject {
         let location = cursorEngine.currentCursorPosition()
         let bounds = visibleDesktopBounds()
         let threshold = 2.0
+        let projectedLocation = projectedCursorLocation(from: location, delta: delta, in: bounds)
         switch companionEdge.opposite {
         case .left:
-            return location.x <= bounds.minX + threshold && delta.x < 0
+            return (location.x <= bounds.minX + threshold || projectedLocation.x <= bounds.minX + threshold) && delta.x < 0
         case .right:
-            return location.x >= bounds.maxX - threshold && delta.x > 0
+            return (location.x >= bounds.maxX - threshold || projectedLocation.x >= bounds.maxX - threshold) && delta.x > 0
         case .top:
-            return location.y >= bounds.maxY - threshold && delta.y > 0
+            return (location.y >= bounds.maxY - threshold || projectedLocation.y >= bounds.maxY - threshold) && delta.y > 0
         case .bottom:
-            return location.y <= bounds.minY + threshold && delta.y < 0
+            return (location.y <= bounds.minY + threshold || projectedLocation.y <= bounds.minY + threshold) && delta.y < 0
         }
     }
 
     private func visibleDesktopBounds() -> CGRect {
-        NSScreen.screens.reduce(into: CGRect.null) { result, screen in
-            result = result.union(screen.frame)
+        var displayCount: UInt32 = 0
+        CGGetOnlineDisplayList(0, nil, &displayCount)
+        var displays = Array(repeating: CGDirectDisplayID(), count: Int(displayCount))
+        CGGetOnlineDisplayList(displayCount, &displays, &displayCount)
+        return displays.reduce(into: CGRect.null) { result, displayID in
+            result = result.union(CGDisplayBounds(displayID))
         }
+    }
+
+    private func normalizedPosition(for location: CGPoint, in bounds: CGRect, edge: CompanionEdge) -> Double {
+        guard bounds.isNull == false else { return 0.5 }
+        switch edge {
+        case .left, .right:
+            let height = max(bounds.height, 1)
+            return min(max((location.y - bounds.minY) / height, 0), 1)
+        case .top, .bottom:
+            let width = max(bounds.width, 1)
+            return min(max((location.x - bounds.minX) / width, 0), 1)
+        }
+    }
+
+    private func remoteEntryPoint(for edge: CompanionEdge, normalizedPosition: Double, in bounds: CGRect) -> CGPoint {
+        let clampedNormalized = min(max(normalizedPosition, 0), 1)
+        let inset = 8.0
+        switch edge {
+        case .left:
+            return CGPoint(
+                x: bounds.maxX - inset,
+                y: bounds.minY + (bounds.height * clampedNormalized)
+            )
+        case .right:
+            return CGPoint(
+                x: bounds.minX + inset,
+                y: bounds.minY + (bounds.height * clampedNormalized)
+            )
+        case .top:
+            return CGPoint(
+                x: bounds.minX + (bounds.width * clampedNormalized),
+                y: bounds.minY + inset
+            )
+        case .bottom:
+            return CGPoint(
+                x: bounds.minX + (bounds.width * clampedNormalized),
+                y: bounds.maxY - inset
+            )
+        }
+    }
+
+    private func restorePointForLocalMac(from location: CGPoint, in bounds: CGRect) -> CGPoint {
+        let inset = 12.0
+        switch companionEdge {
+        case .left:
+            return CGPoint(x: bounds.minX + inset, y: location.y)
+        case .right:
+            return CGPoint(x: bounds.maxX - inset, y: location.y)
+        case .top:
+            return CGPoint(x: location.x, y: bounds.maxY - inset)
+        case .bottom:
+            return CGPoint(x: location.x, y: bounds.minY + inset)
+        }
+    }
+
+    private func projectedCursorLocation(from location: CGPoint, delta: SIMD2<Double>, in bounds: CGRect) -> CGPoint {
+        CGPoint(
+            x: min(max(location.x + delta.x, bounds.minX), bounds.maxX - 1),
+            y: min(max(location.y + delta.y, bounds.minY), bounds.maxY - 1)
+        )
+    }
+
+    private func handoffDebugSummary(
+        modeLabel: String,
+        label: String,
+        location: CGPoint,
+        projected: CGPoint,
+        bounds: CGRect,
+        triggered: Bool
+    ) -> String {
+        "[\(modeLabel)] \(label.capitalized) \(companionEdge.displayName) edge • x \(Int(location.x))→\(Int(projected.x)) y \(Int(location.y))→\(Int(projected.y)) • bounds \(Int(bounds.minX))...\(Int(bounds.maxX - 1)) / \(Int(bounds.minY))...\(Int(bounds.maxY - 1)) • trigger \(triggered ? "yes" : "no")"
     }
 
     private func syncCursorConfiguration() {
@@ -671,6 +825,7 @@ final class AppModel: ObservableObject {
         companionManager.disconnect()
         actionEngine.cancelAll()
         cursorEngine.releaseTransientState()
+        lastLocalHandoffRestorePoint = nil
     }
 }
 

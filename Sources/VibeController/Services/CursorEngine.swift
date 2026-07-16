@@ -34,9 +34,11 @@ final class CursorEngine {
     private var lastTickTime: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
     private var leftStick = StickSnapshot()
     private var rightStick = StickSnapshot()
-    private var cursorConfiguration = ControllerProfile.desktopControl.cursor
+    private var cursorConfiguration = ControllerProfile.gabesDefaults.cursor
     private var smoothedVelocity = SIMD2<Double>.zero
     private let eventSource = CGEventSource(stateID: .combinedSessionState)
+    private var lastKnownCursorPosition: CGPoint?
+    private var lastSyntheticCursorUpdateTime: CFAbsoluteTime = 0
 
     private(set) var isDraggingLeftMouse = false
     var isEnabled = true
@@ -46,6 +48,7 @@ final class CursorEngine {
     var movementInterceptor: ((CGPoint, SIMD2<Double>) -> Bool)?
 
     init() {
+        lastKnownCursorPosition = CGEvent(source: nil)?.location ?? .zero
         startTimer()
     }
 
@@ -79,7 +82,23 @@ final class CursorEngine {
     }
 
     func currentCursorPosition() -> CGPoint {
-        CGEvent(source: nil)?.location ?? .zero
+        synchronizeCursorPositionFromSystemIfNeeded()
+        return lastKnownCursorPosition ?? .zero
+    }
+
+    func positionCursor(at point: CGPoint) {
+        guard isEnabled, accessibilityTrusted else { return }
+        let target = clampedToVisibleScreens(point)
+        recordSyntheticCursorPosition(target)
+        let type: CGEventType = isDraggingLeftMouse ? .leftMouseDragged : .mouseMoved
+        let warpResult = CGWarpMouseCursorPosition(target)
+        postMouseEvent(type: type, location: target, button: .left)
+        publishDiagnostics(
+            state: .moving,
+            velocity: .zero,
+            location: target,
+            message: warpResult == .success ? "Positioning cursor for companion handoff." : "Cursor warp failed: \(warpResult.rawValue)"
+        )
     }
 
     private func startTimer() {
@@ -96,6 +115,7 @@ final class CursorEngine {
         let now = CFAbsoluteTimeGetCurrent()
         let deltaTime = max(1.0 / 240.0, min(now - lastTickTime, 1.0 / 30.0))
         lastTickTime = now
+        synchronizeCursorPositionFromSystemIfNeeded(now: now)
 
         guard isEnabled, accessibilityTrusted else {
             smoothedVelocity = .zero
@@ -203,6 +223,7 @@ final class CursorEngine {
         }
         let unclamped = CGPoint(x: currentPosition.x + delta.x, y: currentPosition.y + delta.y)
         let target = clampedToVisibleScreens(unclamped)
+        recordSyntheticCursorPosition(target)
         let type: CGEventType = isDraggingLeftMouse ? .leftMouseDragged : .mouseMoved
         let warpResult = CGWarpMouseCursorPosition(target)
         postMouseEvent(type: type, location: target, button: .left)
@@ -244,6 +265,19 @@ final class CursorEngine {
             return
         }
         event.post(tap: .cghidEventTap)
+    }
+
+    private func recordSyntheticCursorPosition(_ point: CGPoint) {
+        lastKnownCursorPosition = point
+        lastSyntheticCursorUpdateTime = CFAbsoluteTimeGetCurrent()
+    }
+
+    private func synchronizeCursorPositionFromSystemIfNeeded(now: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()) {
+        guard let systemLocation = CGEvent(source: nil)?.location else { return }
+        let recentlyMovedSynthhetically = (now - lastSyntheticCursorUpdateTime) < 0.15
+        if lastKnownCursorPosition == nil || recentlyMovedSynthhetically == false {
+            lastKnownCursorPosition = systemLocation
+        }
     }
 
     func performDiagnosticNudge() -> String {

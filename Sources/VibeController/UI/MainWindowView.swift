@@ -478,6 +478,22 @@ private struct CompanionSettingsView: View {
                         appModel.disconnectCompanion()
                     }
                 }
+
+                HStack(spacing: 10) {
+                    Button("Force Handoff") {
+                        appModel.forceCompanionHandoff()
+                    }
+                    .disabled({
+                        if case .connected = appModel.companionConnectionState {
+                            return false
+                        }
+                        return true
+                    }())
+
+                    Button("Return Local") {
+                        appModel.forceReturnLocal()
+                    }
+                }
             } else if appModel.companionMode == .receiver {
                 Text("Run this mode on the second Mac. It advertises itself on the local network and accepts forwarded pointer, click, scroll, and shortcut events.")
                     .font(.footnote)
@@ -488,6 +504,25 @@ private struct CompanionSettingsView: View {
                 Text("This is the advanced route: when the local cursor pushes through the selected edge, Vibe Controller forwards motion and desktop actions to the other Mac until the remote cursor reaches the return edge.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Peer metadata")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(appModel.companionRemoteBuildSummary)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    Text("Handoff debug")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(appModel.companionHandoffDebug)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

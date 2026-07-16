@@ -219,14 +219,14 @@ struct ProfileDocument: Codable, Hashable, Sendable {
 }
 
 extension ControllerProfile {
-    static let desktopControl = ControllerProfile(
-        id: "desktop-control",
-        name: "Desktop Control",
+    static let gabesDefaults = ControllerProfile(
+        id: "gabes-defaults",
+        name: "Gabe's Defaults",
         cursor: CursorConfiguration(
             primaryStick: .left,
             precisionStick: .right,
-            primarySpeed: 2200,
-            precisionSpeed: 500,
+            primarySpeed: 2227.5417018581084,
+            precisionSpeed: 565.6513935810809,
             deadZone: 0.12,
             responseCurve: 1.8,
             smoothing: 0.5,
@@ -239,35 +239,51 @@ extension ControllerProfile {
             verticalSpeedMultiplier: 1.0
         ),
         mappings: [
-            .rightTrigger: ControllerActionMapping(actionType: .leftMouseHold, triggerMode: .holdWhilePressed),
-            .rightShoulder: ControllerActionMapping(actionType: .leftClick, triggerMode: .tap),
-            .leftTrigger: ControllerActionMapping(actionType: .rightClick, triggerMode: .tap),
-            .buttonSouth: ControllerActionMapping(
+            .leftTrigger: ControllerActionMapping(actionType: .leftMouseHold, triggerMode: .holdWhilePressed),
+            .leftShoulder: ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 53, modifiers: []),
+                triggerMode: .tap
+            ),
+            .rightTrigger: ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 63, modifiers: []),
+                triggerMode: .holdWhilePressed
+            ),
+            .rightShoulder: ControllerActionMapping(actionType: .rightClick, triggerMode: .tap),
+            .buttonSouth: ControllerActionMapping(actionType: .leftClick, triggerMode: .tap),
+            .buttonEast: ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 21, modifiers: [.control, .shift, .command]),
+                triggerMode: .tap
+            ),
+            .buttonWest: ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 19, modifiers: [.shift, .command]),
+                triggerMode: .tap
+            ),
+            .buttonNorth: ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 9, modifiers: [.command]),
+                triggerMode: .tap
+            ),
+            .dpadUp: ControllerActionMapping(actionType: .scrollUp, triggerMode: .repeatWhileHeld),
+            .dpadDown: ControllerActionMapping(actionType: .scrollDown, triggerMode: .repeatWhileHeld),
+            .dpadLeft: ControllerActionMapping(actionType: .switchSpaceLeft, triggerMode: .tap),
+            .dpadRight: ControllerActionMapping(actionType: .switchSpaceRight, triggerMode: .tap),
+            .leftThumbstickButton: ControllerActionMapping(
                 actionType: .keyboardShortcut,
                 shortcut: ShortcutDescriptor(keyCode: 36, modifiers: []),
+                triggerMode: .tap
+            ),
+            .rightThumbstickButton: ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 51, modifiers: []),
                 triggerMode: .tap
             ),
             .options: ControllerActionMapping(
                 actionType: .keyboardShortcut,
                 shortcut: nil,
-                triggerMode: .tap
-            ),
-            .buttonWest: ControllerActionMapping(
-                actionType: .keyboardShortcut,
-                shortcut: ShortcutDescriptor(keyCode: 19, modifiers: [.command, .shift]),
-                triggerMode: .tap
-            ),
-            .buttonNorth: ControllerActionMapping(
-                actionType: .keyboardShortcut,
-                shortcut: ShortcutDescriptor(keyCode: 21, modifiers: [.command, .control, .shift]),
-                triggerMode: .tap
-            ),
-            .dpadUp: ControllerActionMapping(actionType: .scrollUp, triggerMode: .repeatWhileHeld),
-            .dpadDown: ControllerActionMapping(actionType: .scrollDown, triggerMode: .repeatWhileHeld),
-            .leftThumbstickButton: ControllerActionMapping(actionType: .toggleCursorSpeeds, triggerMode: .tap),
-            .rightThumbstickButton: ControllerActionMapping(
-                actionType: .keyboardShortcut,
-                shortcut: ShortcutDescriptor(keyCode: 53, modifiers: []),
                 triggerMode: .tap
             ),
         ]
@@ -277,7 +293,7 @@ extension ControllerProfile {
 extension ProfileDocument {
     static let defaultDocument = ProfileDocument(
         version: 1,
-        profiles: [.desktopControl],
-        activeProfileId: ControllerProfile.desktopControl.id
+        profiles: [.gabesDefaults],
+        activeProfileId: ControllerProfile.gabesDefaults.id
     )
 }

@@ -10,7 +10,11 @@ final class ProfileStoreTests: XCTestCase {
         let document = try store.loadOrCreate()
 
         XCTAssertEqual(document.version, 1)
-        XCTAssertEqual(document.profiles.first?.name, "Desktop Control")
+        XCTAssertEqual(document.profiles.first?.name, "Gabe's Defaults")
+        XCTAssertEqual(document.activeProfileId, "gabes-defaults")
+        XCTAssertEqual(document.profiles.first?.mappings[.buttonWest]?.shortcut?.displayString, "⇧⌘2")
+        XCTAssertEqual(document.profiles.first?.mappings[.buttonEast]?.shortcut?.displayString, "^⇧⌘4")
+        XCTAssertEqual(document.profiles.first?.mappings[.rightTrigger]?.shortcut?.displayString, "fn")
     }
 
     func testImportProfileRenamesDuplicateIdentifiers() throws {
@@ -18,7 +22,7 @@ final class ProfileStoreTests: XCTestCase {
         let store = ProfileStore(baseDirectoryURL: directory)
         let existing = ProfileDocument.defaultDocument
 
-        let imported = ControllerProfile.desktopControl
+        let imported = ControllerProfile.gabesDefaults
         let importURL = directory.appendingPathComponent("import.json")
         let encoder = JSONEncoder()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -27,7 +31,7 @@ final class ProfileStoreTests: XCTestCase {
         let merged = try store.importProfile(from: importURL, into: existing)
 
         XCTAssertEqual(merged.profiles.count, 2)
-        XCTAssertEqual(merged.profiles[1].id, "desktop-control-2")
-        XCTAssertEqual(merged.activeProfileId, "desktop-control-2")
+        XCTAssertEqual(merged.profiles[1].id, "gabes-defaults-2")
+        XCTAssertEqual(merged.activeProfileId, "gabes-defaults-2")
     }
 }

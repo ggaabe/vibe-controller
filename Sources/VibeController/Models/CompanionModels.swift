@@ -1,5 +1,9 @@
 import Foundation
 
+enum CompanionProtocol {
+    static let version = 2
+}
+
 enum CompanionMode: String, CaseIterable, Codable, Identifiable, Sendable {
     case off
     case controller
@@ -111,6 +115,7 @@ struct CompanionControlEvent: Sendable {
 
 enum CompanionMessageType: String, Codable, Sendable {
     case hello
+    case handoffStart
     case pointerDelta
     case mouse
     case scroll
@@ -122,6 +127,10 @@ enum CompanionMessageType: String, Codable, Sendable {
 struct CompanionMessage: Codable, Sendable {
     var type: CompanionMessageType
     var name: String?
+    var protocolVersion: Int?
+    var buildVersion: String?
+    var edge: CompanionEdge?
+    var normalizedPosition: Double?
     var dx: Double?
     var dy: Double?
     var button: CompanionMouseButton?
@@ -132,8 +141,12 @@ struct CompanionMessage: Codable, Sendable {
     var shortcutPhase: CompanionShortcutPhase?
     var spaceSwitchDirection: SpaceSwitchDirection?
 
-    static func hello(name: String) -> Self {
-        Self(type: .hello, name: name)
+    static func hello(name: String, protocolVersion: Int, buildVersion: String) -> Self {
+        Self(type: .hello, name: name, protocolVersion: protocolVersion, buildVersion: buildVersion)
+    }
+
+    static func handoffStart(edge: CompanionEdge, normalizedPosition: Double) -> Self {
+        Self(type: .handoffStart, edge: edge, normalizedPosition: normalizedPosition)
     }
 
     static func pointerDelta(dx: Double, dy: Double) -> Self {

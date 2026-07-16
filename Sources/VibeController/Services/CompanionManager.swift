@@ -18,6 +18,21 @@ final class CompanionManager: ObservableObject {
     private var endpointsByID: [String: NWEndpoint] = [:]
     private var receiveBuffer = Data()
 
+    private var localBuildVersion: String {
+        let shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let buildNumber = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        switch (shortVersion, buildNumber) {
+        case let (short?, build?) where !short.isEmpty && !build.isEmpty:
+            return "\(short) (\(build))"
+        case let (short?, _):
+            return short
+        case let (_, build?):
+            return build
+        default:
+            return "dev"
+        }
+    }
+
     func setMode(_ mode: CompanionMode) {
         guard self.mode != mode else { return }
         self.mode = mode
@@ -39,7 +54,7 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        disconnect()
+        disconnect(preserveState: true)
 
         let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true
@@ -56,10 +71,11 @@ final class CompanionManager: ObservableObject {
         startReceiving(on: connection)
     }
 
-    func disconnect() {
+    func disconnect(preserveState: Bool = false) {
         connection?.cancel()
         connection = nil
         receiveBuffer.removeAll(keepingCapacity: true)
+        guard !preserveState else { return }
         switch mode {
         case .off:
             connectionState = .off
@@ -158,7 +174,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private func accept(connection: NWConnection) {
-        disconnect()
+        disconnect(preserveState: true)
         self.connection = connection
         connection.stateUpdateHandler = { [weak self] state in
             Task { @MainActor in
@@ -189,8 +205,11 @@ final class CompanionManager: ObservableObject {
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
-        if case .connected = connectionState {
+        switch connectionState {
+        case .connected, .connecting:
             return
+        default:
+            break
         }
 
         if connection == nil, let firstPeer = discoveredPeers.first {
@@ -202,14 +221,14 @@ final class CompanionManager: ObservableObject {
         switch state {
         case .ready:
             connectionState = .connected(peerName)
-            send(.hello(name: localName))
+            send(.hello(name: localName, protocolVersion: CompanionProtocol.version, buildVersion: localBuildVersion))
         case .failed(let error):
-            connectionState = .error(error.localizedDescription)
-            disconnect()
+            disconnect(preserveState: true)
+            connectionState = .error("Connection failed: \(error.localizedDescription)")
         case .cancelled:
             disconnect()
         case .waiting(let error):
-            connectionState = .error(error.localizedDescription)
+            connectionState = .error("Connection waiting: \(error.localizedDescription)")
         case .setup, .preparing:
             break
         @unknown default:
@@ -222,8 +241,8 @@ final class CompanionManager: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 if let error {
-                    self.connectionState = .error(error.localizedDescription)
-                    self.disconnect()
+                    self.disconnect(preserveState: true)
+                    self.connectionState = .error("Receive failed: \(error.localizedDescription)")
                     return
                 }
                 if let content, !content.isEmpty {
