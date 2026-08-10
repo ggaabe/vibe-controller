@@ -384,9 +384,15 @@ private struct PermissionSetupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Accessibility setup")
-                .font(.title2.weight(.semibold))
-            Text("Vibe Controller needs Accessibility permission to move the pointer and send clicks and keyboard shortcuts across macOS.")
+            HStack {
+                Text("Accessibility setup")
+                    .font(.title2.weight(.semibold))
+                Spacer()
+                Text("Step 1 of 3")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Text("Vibe Controller automatically checks its setup on every launch. Accessibility lets controller input move the pointer and send clicks and keyboard shortcuts across macOS.")
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 Button("Open Privacy & Security") {
@@ -468,25 +474,71 @@ private struct CompanionSettingsView: View {
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
 
-                if !appModel.virtualHardwareReady {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
-                        if appModel.virtualHardwareInstallerAvailable {
-                            Button("Install Support") {
-                                appModel.openVirtualHardwareInstaller()
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                        if appModel.virtualHardwareDriverInstalled {
-                            Button("Activate Driver") {
-                                appModel.activateVirtualHardwareDriver()
-                            }
-                        }
-                        Button("Refresh") {
-                            appModel.refreshVirtualHardwareSupport()
+                        Image(systemName: appModel.virtualHardwareReady ? "checkmark.circle.fill" : "gearshape.2.fill")
+                            .foregroundStyle(appModel.virtualHardwareReady ? .green : .orange)
+                        Text(appModel.virtualHardwareSetupTitle)
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        if let step = appModel.virtualHardwareSetupStepLabel {
+                            Text(step)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .controlSize(.small)
+
+                    Text(appModel.virtualHardwareSetupDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if !appModel.virtualHardwareReady {
+                        HStack(spacing: 8) {
+                            switch appModel.virtualHardwareSetupPhase {
+                            case .needsAccessibility:
+                                Button("Grant Accessibility") {
+                                    appModel.retryAutomaticSetup()
+                                }
+                                .buttonStyle(.borderedProminent)
+
+                            case .needsSupportInstall, .driverVersionMismatch:
+                                Button("Open Installer") {
+                                    appModel.openVirtualHardwareInstaller()
+                                }
+                                .buttonStyle(.borderedProminent)
+
+                            case .needsDriverApproval:
+                                Button("Open Driver Settings") {
+                                    appModel.openDriverExtensionSettings()
+                                }
+                                .buttonStyle(.borderedProminent)
+
+                            case .checking, .startingVirtualHardware:
+                                ProgressView()
+                                    .controlSize(.small)
+                                Button("Refresh") {
+                                    appModel.refreshVirtualHardwareSupport()
+                                }
+
+                            case .missingBundledInstaller:
+                                EmptyView()
+
+                            case .ready:
+                                EmptyView()
+                            }
+
+                            Button("Run Setup Again") {
+                                appModel.retryAutomaticSetup()
+                            }
+                        }
+                        .controlSize(.small)
+                    }
                 }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.secondary.opacity(0.08))
+                )
             } else if appModel.companionMode == .controller {
                 Picker("Handoff edge", selection: Binding(
                     get: { appModel.companionEdge },

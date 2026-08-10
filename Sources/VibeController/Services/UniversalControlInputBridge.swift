@@ -66,6 +66,22 @@ final class UniversalControlInputBridge {
         virtualHIDBridge.isPointingReady && virtualHIDBridge.isKeyboardReady
     }
 
+    var isVirtualHardwareDriverActivated: Bool {
+        virtualHIDBridge.isDriverActivated
+    }
+
+    var isVirtualHardwareDriverConnected: Bool {
+        virtualHIDBridge.isDriverConnected
+    }
+
+    var isVirtualHardwareDriverVersionMismatched: Bool {
+        virtualHIDBridge.isDriverVersionMismatched
+    }
+
+    var hasReceivedVirtualHardwareDriverStatus: Bool {
+        virtualHIDBridge.hasReceivedDriverStatus
+    }
+
     var initializationMessage: String {
         if isVirtualHardwareReady {
             return virtualHIDBridge.statusMessage

@@ -22,6 +22,10 @@ final class PrivilegedVirtualHIDBridge {
 
     private(set) var isKeyboardReady = false
     private(set) var isPointingReady = false
+    private(set) var isDriverActivated = false
+    private(set) var isDriverConnected = false
+    private(set) var isDriverVersionMismatched = false
+    private(set) var hasReceivedDriverStatus = false
     private(set) var statusMessage = "Virtual hardware support is not installed."
     var onStatusChange: (() -> Void)?
 
@@ -40,8 +44,12 @@ final class PrivilegedVirtualHIDBridge {
         guard process?.isRunning != true else { return }
         guard Date().timeIntervalSince(lastStartAttempt) >= 2 else { return }
         lastStartAttempt = Date()
-        guard Self.installedHelperIsSecure else {
+        guard Self.isInstalledSecurely else {
+            hasReceivedDriverStatus = false
             updateStatus(
+                driverActivated: false,
+                driverConnected: false,
+                driverVersionMismatched: false,
                 keyboardReady: false,
                 pointingReady: false,
                 message: "Install Virtual Hardware Support to enable seamless Universal Control."
@@ -75,14 +83,22 @@ final class PrivilegedVirtualHIDBridge {
             self.process = process
             self.inputPipe = inputPipe
             self.outputPipe = outputPipe
+            hasReceivedDriverStatus = false
             updateStatus(
+                driverActivated: false,
+                driverConnected: false,
+                driverVersionMismatched: false,
                 keyboardReady: false,
                 pointingReady: false,
                 message: "Starting virtual mouse hardware…"
             )
         } catch {
             outputPipe.fileHandleForReading.readabilityHandler = nil
+            hasReceivedDriverStatus = false
             updateStatus(
+                driverActivated: false,
+                driverConnected: false,
+                driverVersionMismatched: false,
                 keyboardReady: false,
                 pointingReady: false,
                 message: "Could not start Virtual Hardware Support: \(error.localizedDescription)"
@@ -151,7 +167,11 @@ final class PrivilegedVirtualHIDBridge {
             try inputPipe.fileHandleForWriting.write(contentsOf: command)
             return true
         } catch {
+            hasReceivedDriverStatus = false
             updateStatus(
+                driverActivated: false,
+                driverConnected: false,
+                driverVersionMismatched: false,
                 keyboardReady: false,
                 pointingReady: false,
                 message: "Virtual hardware connection was interrupted."
@@ -172,10 +192,14 @@ final class PrivilegedVirtualHIDBridge {
 
     private func handleOutputLine(_ line: String) {
         if line.hasPrefix("STATUS ") {
+            hasReceivedDriverStatus = true
+            let driverActivated = line.contains("activated=1")
+            let driverConnected = line.contains("connected=1")
+            let driverVersionMismatched = line.contains("mismatch=1")
             let keyboardReady = line.contains("keyboard=1")
             let pointingReady = line.contains("pointing=1")
             let message: String
-            if line.contains("mismatch=1") {
+            if driverVersionMismatched {
                 message = "The installed virtual hardware driver version does not match this app."
             } else if line.contains("activated=0") {
                 message = "Virtual hardware is installed but still needs Driver Extension approval."
@@ -187,12 +211,19 @@ final class PrivilegedVirtualHIDBridge {
                 message = "Waiting for the virtual mouse and keyboard to become ready…"
             }
             updateStatus(
+                driverActivated: driverActivated,
+                driverConnected: driverConnected,
+                driverVersionMismatched: driverVersionMismatched,
                 keyboardReady: keyboardReady,
                 pointingReady: pointingReady,
                 message: message
             )
         } else if line.hasPrefix("ERROR ") {
+            hasReceivedDriverStatus = false
             updateStatus(
+                driverActivated: false,
+                driverConnected: false,
+                driverVersionMismatched: false,
                 keyboardReady: false,
                 pointingReady: false,
                 message: String(line.dropFirst("ERROR ".count))
@@ -205,17 +236,34 @@ final class PrivilegedVirtualHIDBridge {
         process = nil
         inputPipe = nil
         outputPipe = nil
+        hasReceivedDriverStatus = false
         updateStatus(
+            driverActivated: false,
+            driverConnected: false,
+            driverVersionMismatched: false,
             keyboardReady: false,
             pointingReady: false,
             message: "Virtual hardware support is not running."
         )
     }
 
-    private func updateStatus(keyboardReady: Bool, pointingReady: Bool, message: String) {
-        let changed = isKeyboardReady != keyboardReady ||
+    private func updateStatus(
+        driverActivated: Bool,
+        driverConnected: Bool,
+        driverVersionMismatched: Bool,
+        keyboardReady: Bool,
+        pointingReady: Bool,
+        message: String
+    ) {
+        let changed = isDriverActivated != driverActivated ||
+            isDriverConnected != driverConnected ||
+            isDriverVersionMismatched != driverVersionMismatched ||
+            isKeyboardReady != keyboardReady ||
             isPointingReady != pointingReady ||
             statusMessage != message
+        isDriverActivated = driverActivated
+        isDriverConnected = driverConnected
+        isDriverVersionMismatched = driverVersionMismatched
         isKeyboardReady = keyboardReady
         isPointingReady = pointingReady
         statusMessage = message
@@ -224,7 +272,7 @@ final class PrivilegedVirtualHIDBridge {
         }
     }
 
-    private static var installedHelperIsSecure: Bool {
+    static var isInstalledSecurely: Bool {
         let path = installedHelperPath
         guard FileManager.default.isExecutableFile(atPath: path),
               let attributes = try? FileManager.default.attributesOfItem(atPath: path),

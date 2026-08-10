@@ -84,6 +84,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isRoutingToCompanion = false
     @Published private(set) var companionRemoteBuildSummary = "Waiting for peer metadata"
     @Published private(set) var companionHandoffDebug = "No handoff activity yet."
+    @Published private(set) var virtualHardwareSetupPhase: VirtualHardwareSetupPhase = .checking
     @Published var presentedSheet: ControllerSheetSelection?
     @Published var lastErrorMessage: String?
 
@@ -97,6 +98,12 @@ final class AppModel: ObservableObject {
     private let userDefaults = UserDefaults.standard
     private var lastLocalHandoffRestorePoint: CGPoint?
     private var cancellables = Set<AnyCancellable>()
+    private var automaticSetupTimer: Timer?
+    private var driverActivationProcess: Process?
+    private var didAutomaticallyRequestAccessibility = false
+    private var didAutomaticallyOpenSupportInstaller = false
+    private var didAutomaticallyRequestDriverActivation = false
+    private var driverStatusWaitStartedAt: Date?
 
     init(
         profileStore: ProfileStore = ProfileStore(),
@@ -141,6 +148,7 @@ final class AppModel: ObservableObject {
         }
         cursorEngine.universalControlInputBridge.onStatusChange = { [weak self] in
             self?.objectWillChange.send()
+            self?.advanceAutomaticSetup()
         }
         cursorEngine.movementInterceptor = { [weak self] currentLocation, delta in
             self?.interceptCursorMovement(currentLocation: currentLocation, delta: delta) ?? false
@@ -213,6 +221,7 @@ final class AppModel: ObservableObject {
         if controllerSnapshot.isConnected {
             actionEngine.process(snapshot: controllerSnapshot, profile: activeProfile)
         }
+        startAutomaticSetupMonitoring()
     }
 
     var activeProfile: ControllerProfile {
@@ -302,7 +311,24 @@ final class AppModel: ObservableObject {
         FileManager.default.isExecutableFile(atPath: Self.virtualHardwareManagerPath)
     }
 
+    var virtualHardwareSupportInstalled: Bool {
+        PrivilegedVirtualHIDBridge.isInstalledSecurely && virtualHardwareDriverInstalled
+    }
+
+    var virtualHardwareSetupTitle: String {
+        virtualHardwareSetupPhase.title
+    }
+
+    var virtualHardwareSetupDetail: String {
+        virtualHardwareSetupPhase.detail
+    }
+
+    var virtualHardwareSetupStepLabel: String? {
+        virtualHardwareSetupPhase.stepNumber.map { "Step \($0) of 3" }
+    }
+
     func openVirtualHardwareInstaller() {
+        didAutomaticallyOpenSupportInstaller = true
         guard let url = virtualHardwareInstallerURL else {
             lastErrorMessage = "The Virtual Hardware Support installer is not bundled with this build."
             return
@@ -312,35 +338,27 @@ final class AppModel: ObservableObject {
     }
 
     func activateVirtualHardwareDriver() {
-        guard virtualHardwareDriverInstalled else {
-            lastErrorMessage = "Install Virtual Hardware Support first."
+        didAutomaticallyRequestDriverActivation = true
+        requestVirtualHardwareDriverActivation(openSettings: true)
+    }
+
+    func openDriverExtensionSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") else {
             return
         }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: Self.virtualHardwareManagerPath)
-        process.arguments = ["activate"]
-        process.terminationHandler = { [weak self] process in
-            Task { @MainActor [weak self] in
-                if process.terminationStatus == 0 {
-                    self?.lastActionStatus = "Driver activation requested. Approve it in System Settings if prompted."
-                    self?.cursorEngine.universalControlInputBridge.refreshVirtualHardwareSupport()
-                } else {
-                    self?.lastErrorMessage = "macOS did not activate the virtual hardware driver."
-                }
-            }
-        }
-        do {
-            try process.run()
-            lastActionStatus = "Requesting virtual hardware activation…"
-        } catch {
-            lastErrorMessage = error.localizedDescription
-        }
+        NSWorkspace.shared.open(url)
+        lastActionStatus = "Opened Driver Extension settings. Select Karabiner and enable its Driver Extension."
     }
 
     func refreshVirtualHardwareSupport() {
-        cursorEngine.universalControlInputBridge.refreshVirtualHardwareSupport()
-        objectWillChange.send()
+        advanceAutomaticSetup()
+    }
+
+    func retryAutomaticSetup() {
+        didAutomaticallyRequestAccessibility = false
+        didAutomaticallyOpenSupportInstaller = false
+        didAutomaticallyRequestDriverActivation = false
+        advanceAutomaticSetup()
     }
 
     func setCompanionMode(_ mode: CompanionMode) {
@@ -437,7 +455,11 @@ final class AppModel: ObservableObject {
     }
 
     func requestAccessibilitySetup() {
+        didAutomaticallyRequestAccessibility = true
         permissionManager.requestAccessibilityPrompt()
+        if !permissionManager.accessibilityTrusted {
+            permissionManager.openAccessibilitySettings()
+        }
     }
 
     func resetActiveProfileToDefaults() {
@@ -662,6 +684,7 @@ final class AppModel: ObservableObject {
         } else {
             syncCursorConfiguration()
         }
+        advanceAutomaticSetup()
     }
 
     private func refreshCompanionState() {
@@ -897,6 +920,143 @@ final class AppModel: ObservableObject {
         triggered: Bool
     ) -> String {
         "[\(modeLabel)] \(label.capitalized) \(companionEdge.displayName) edge • x \(Int(location.x))→\(Int(projected.x)) y \(Int(location.y))→\(Int(projected.y)) • bounds \(Int(bounds.minX))...\(Int(bounds.maxX - 1)) / \(Int(bounds.minY))...\(Int(bounds.maxY - 1)) • trigger \(triggered ? "yes" : "no")"
+    }
+
+    private func startAutomaticSetupMonitoring() {
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.advanceAutomaticSetup()
+            }
+        }
+        automaticSetupTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            self?.advanceAutomaticSetup()
+        }
+    }
+
+    private var virtualHardwareSetupSnapshot: VirtualHardwareSetupSnapshot {
+        let bridge = cursorEngine.universalControlInputBridge
+        return VirtualHardwareSetupSnapshot(
+            accessibilityTrusted: accessibilityTrusted,
+            helperInstalledSecurely: PrivilegedVirtualHIDBridge.isInstalledSecurely,
+            driverManagerInstalled: virtualHardwareDriverInstalled,
+            bundledInstallerAvailable: virtualHardwareInstallerAvailable,
+            driverStatusKnown: bridge.hasReceivedVirtualHardwareDriverStatus,
+            driverActivated: bridge.isVirtualHardwareDriverActivated,
+            driverVersionMismatched: bridge.isVirtualHardwareDriverVersionMismatched,
+            virtualHardwareReady: bridge.isVirtualHardwareReady
+        )
+    }
+
+    private func advanceAutomaticSetup() {
+        cursorEngine.universalControlInputBridge.refreshVirtualHardwareSupport()
+
+        let nextPhase = virtualHardwareSetupSnapshot.phase
+        let phaseChanged = virtualHardwareSetupPhase != nextPhase
+        virtualHardwareSetupPhase = nextPhase
+        if nextPhase != .checking {
+            driverStatusWaitStartedAt = nil
+        }
+
+        switch nextPhase {
+        case .checking:
+            guard virtualHardwareSupportInstalled else { return }
+            if driverStatusWaitStartedAt == nil {
+                driverStatusWaitStartedAt = Date()
+            } else if let startedAt = driverStatusWaitStartedAt,
+                      Date().timeIntervalSince(startedAt) >= 3,
+                      !didAutomaticallyRequestDriverActivation {
+                didAutomaticallyRequestDriverActivation = true
+                requestVirtualHardwareDriverActivation(openSettings: true)
+            }
+
+        case .needsAccessibility:
+            guard !didAutomaticallyRequestAccessibility else { return }
+            requestAccessibilitySetup()
+            lastActionStatus = "Waiting for Accessibility approval."
+
+        case .needsSupportInstall:
+            guard !didAutomaticallyOpenSupportInstaller else { return }
+            openVirtualHardwareInstaller()
+            lastActionStatus = "Approve the one-time Virtual Hardware Support installer."
+
+        case .missingBundledInstaller:
+            if phaseChanged {
+                lastErrorMessage = "This app build is missing its bundled Virtual Hardware Support installer."
+            }
+
+        case .driverVersionMismatch:
+            guard !didAutomaticallyOpenSupportInstaller else { return }
+            openVirtualHardwareInstaller()
+            lastActionStatus = "Approve the bundled installer to update Virtual Hardware Support."
+
+        case .needsDriverApproval:
+            guard !didAutomaticallyRequestDriverActivation else { return }
+            didAutomaticallyRequestDriverActivation = true
+            requestVirtualHardwareDriverActivation(openSettings: true)
+
+        case .startingVirtualHardware:
+            if phaseChanged {
+                lastActionStatus = "Starting the virtual mouse and keyboard…"
+            }
+
+        case .ready:
+            if phaseChanged {
+                lastErrorMessage = nil
+                lastActionStatus = "Virtual mouse and keyboard ready for Universal Control."
+            }
+        }
+    }
+
+    private func requestVirtualHardwareDriverActivation(openSettings: Bool) {
+        guard virtualHardwareDriverInstalled else {
+            lastErrorMessage = "Install Virtual Hardware Support first."
+            return
+        }
+
+        if driverActivationProcess?.isRunning == true {
+            if openSettings {
+                openDriverExtensionSettingsAfterRequest()
+            }
+            return
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: Self.virtualHardwareManagerPath)
+        process.arguments = ["activate"]
+        process.terminationHandler = { [weak self] process in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.driverActivationProcess = nil
+                self.cursorEngine.universalControlInputBridge.refreshVirtualHardwareSupport()
+                if process.terminationStatus != 0 && !self.virtualHardwareReady {
+                    self.lastErrorMessage = "macOS did not activate the virtual hardware driver. Open Driver Extension settings and try again."
+                }
+                self.advanceAutomaticSetup()
+            }
+        }
+
+        do {
+            try process.run()
+            driverActivationProcess = process
+            lastActionStatus = "Requesting Driver Extension approval…"
+            if openSettings {
+                openDriverExtensionSettingsAfterRequest()
+            }
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func openDriverExtensionSettingsAfterRequest() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, !self.virtualHardwareReady else { return }
+            self.openDriverExtensionSettings()
+        }
     }
 
     private func syncCursorConfiguration() {

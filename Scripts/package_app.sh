@@ -7,14 +7,12 @@ EXECUTABLE="$ROOT_DIR/.build/debug/VibeController"
 SIGNING_IDENTITY="${VIBE_CONTROLLER_SIGNING_IDENTITY:-}"
 DEFAULT_SIGNING_IDENTITY="Apple Development: Gabriel Garrett (Q527MSL34N)"
 
-if [[ ! -x "$EXECUTABLE" ]]; then
-  echo "Missing debug executable at $EXECUTABLE"
-  echo "Run: swift build"
-  exit 1
-fi
-
 if [[ -z "$SIGNING_IDENTITY" ]]; then
-  SIGNING_IDENTITY="$DEFAULT_SIGNING_IDENTITY"
+  if security find-identity -v -p codesigning | grep -Fq "\"$DEFAULT_SIGNING_IDENTITY\""; then
+    SIGNING_IDENTITY="$DEFAULT_SIGNING_IDENTITY"
+  else
+    SIGNING_IDENTITY="$(security find-identity -v -p codesigning | sed -n 's/.*"\(.*\)"/\1/p' | head -n 1)"
+  fi
 fi
 
 if [[ -z "$SIGNING_IDENTITY" ]]; then
@@ -29,13 +27,22 @@ if ! security find-identity -v -p codesigning | grep -Fq "\"$SIGNING_IDENTITY\""
   exit 1
 fi
 
+export VIBE_CONTROLLER_SIGNING_IDENTITY="$SIGNING_IDENTITY"
+swift build --package-path "$ROOT_DIR" --product VibeController
+swift build --package-path "$ROOT_DIR" -c release --product VibeVirtualHIDBridge
+"$ROOT_DIR/Scripts/fetch_virtual_hid_driver.sh"
+"$ROOT_DIR/Scripts/package_virtual_hid_support.sh"
+
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/VibeController"
 
 SUPPORT_INSTALLER="$ROOT_DIR/dist/VibeController-VirtualHardwareSupport-0.1.0.pkg"
-if [[ -f "$SUPPORT_INSTALLER" ]]; then
-  cp "$SUPPORT_INSTALLER" "$APP_DIR/Contents/Resources/"
+if [[ ! -f "$SUPPORT_INSTALLER" ]]; then
+  echo "Virtual Hardware Support packaging did not produce $SUPPORT_INSTALLER"
+  exit 1
 fi
+cp "$SUPPORT_INSTALLER" "$APP_DIR/Contents/Resources/"
+cp "$ROOT_DIR/THIRD_PARTY_NOTICES.md" "$APP_DIR/Contents/Resources/"
 
 cat > "$APP_DIR/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>

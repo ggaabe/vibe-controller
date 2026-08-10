@@ -329,7 +329,10 @@ static bool become_root(void) {
 }
 
 static bool initialize_devices(void) {
-  uint64_t keyboard_parameters[3] = {0x16c0, 0x27db, 33};
+  // Keep the HID country code unspecified. Advertising a concrete country code
+  // makes macOS launch Keyboard Setup Assistant for this virtual keyboard on a
+  // fresh install, even though all reports use standard USB HID key usages.
+  uint64_t keyboard_parameters[3] = {0x16c0, 0x27db, 0};
   return send_service_request(request_keyboard_initialize,
                               (const uint8_t *)keyboard_parameters,
                               sizeof(keyboard_parameters)) &&
