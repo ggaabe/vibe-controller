@@ -139,6 +139,9 @@ final class AppModel: ObservableObject {
         cursorEngine.onDiagnostics = { [weak self] diagnostics in
             self?.cursorDiagnostics = diagnostics
         }
+        cursorEngine.universalControlInputBridge.onStatusChange = { [weak self] in
+            self?.objectWillChange.send()
+        }
         cursorEngine.movementInterceptor = { [weak self] currentLocation, delta in
             self?.interceptCursorMovement(currentLocation: currentLocation, delta: delta) ?? false
         }
@@ -273,9 +276,9 @@ final class AppModel: ObservableObject {
 
     var companionStatusText: String {
         if companionMode == .off {
-            return cursorEngine.universalControlInputBridge.isAvailable
-                ? "Universal Control ready"
-                : "Quartz fallback"
+            return cursorEngine.universalControlInputBridge.isVirtualHardwareReady
+                ? "Virtual hardware ready"
+                : "Virtual hardware setup required"
         }
         if isRoutingToCompanion {
             return "Routing to remote Mac"
@@ -285,6 +288,59 @@ final class AppModel: ObservableObject {
 
     var nativeUniversalControlStatusText: String {
         cursorEngine.universalControlInputBridge.initializationMessage
+    }
+
+    var virtualHardwareReady: Bool {
+        cursorEngine.universalControlInputBridge.isVirtualHardwareReady
+    }
+
+    var virtualHardwareInstallerAvailable: Bool {
+        virtualHardwareInstallerURL != nil
+    }
+
+    var virtualHardwareDriverInstalled: Bool {
+        FileManager.default.isExecutableFile(atPath: Self.virtualHardwareManagerPath)
+    }
+
+    func openVirtualHardwareInstaller() {
+        guard let url = virtualHardwareInstallerURL else {
+            lastErrorMessage = "The Virtual Hardware Support installer is not bundled with this build."
+            return
+        }
+        NSWorkspace.shared.open(url)
+        lastActionStatus = "Opened the Virtual Hardware Support installer."
+    }
+
+    func activateVirtualHardwareDriver() {
+        guard virtualHardwareDriverInstalled else {
+            lastErrorMessage = "Install Virtual Hardware Support first."
+            return
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: Self.virtualHardwareManagerPath)
+        process.arguments = ["activate"]
+        process.terminationHandler = { [weak self] process in
+            Task { @MainActor [weak self] in
+                if process.terminationStatus == 0 {
+                    self?.lastActionStatus = "Driver activation requested. Approve it in System Settings if prompted."
+                    self?.cursorEngine.universalControlInputBridge.refreshVirtualHardwareSupport()
+                } else {
+                    self?.lastErrorMessage = "macOS did not activate the virtual hardware driver."
+                }
+            }
+        }
+        do {
+            try process.run()
+            lastActionStatus = "Requesting virtual hardware activation…"
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    func refreshVirtualHardwareSupport() {
+        cursorEngine.universalControlInputBridge.refreshVirtualHardwareSupport()
+        objectWillChange.send()
     }
 
     func setCompanionMode(_ mode: CompanionMode) {
@@ -459,6 +515,41 @@ final class AppModel: ObservableObject {
 
     func testLeftClick() {
         lastActionStatus = actionEngine.performDiagnosticLeftClick()
+    }
+
+    func captureRemoteProof() {
+        guard virtualHardwareReady else {
+            lastErrorMessage = "Virtual hardware must be ready before capturing a remote proof."
+            return
+        }
+
+        let bounds = visibleDesktopBounds()
+        cursorEngine.positionCursor(
+            at: CGPoint(x: bounds.minX + min(600, bounds.width * 0.35), y: bounds.minY + min(320, bounds.height * 0.35))
+        )
+        lastActionStatus = cursorEngine.performDiagnosticNudge()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: .seconds(6.2))
+            _ = self.actionEngine.performDiagnosticLeftClick()
+            try? await Task.sleep(for: .milliseconds(500))
+
+            let bridge = self.cursorEngine.universalControlInputBridge
+            let command = CGEventFlags.maskCommand
+            _ = bridge.postShortcutDown(keyCode: 49, flags: command)
+            _ = bridge.postShortcutUp(keyCode: 49, flags: command)
+            try? await Task.sleep(for: .milliseconds(700))
+
+            let screenshotFlags: CGEventFlags = [.maskControl, .maskShift, .maskCommand]
+            _ = bridge.postShortcutDown(keyCode: 20, flags: screenshotFlags)
+            _ = bridge.postShortcutUp(keyCode: 20, flags: screenshotFlags)
+            self.lastActionStatus = "Requested a screenshot from the active Universal Control Mac."
+
+            try? await Task.sleep(for: .seconds(1))
+            _ = bridge.postShortcutDown(keyCode: 53, flags: [])
+            _ = bridge.postShortcutUp(keyCode: 53, flags: [])
+        }
     }
 
     func cursorBinding<Value>(_ keyPath: WritableKeyPath<CursorConfiguration, Value>) -> Binding<Value> {
@@ -834,6 +925,18 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private var virtualHardwareInstallerURL: URL? {
+        if let bundled = Bundle.main.url(
+            forResource: "VibeController-VirtualHardwareSupport-0.1.0",
+            withExtension: "pkg"
+        ) {
+            return bundled
+        }
+        let developmentCopy = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("dist/VibeController-VirtualHardwareSupport-0.1.0.pkg")
+        return FileManager.default.fileExists(atPath: developmentCopy.path) ? developmentCopy : nil
+    }
+
     private func shutdown() {
         companionManager.disconnect()
         actionEngine.cancelAll()
@@ -843,6 +946,7 @@ final class AppModel: ObservableObject {
 }
 
 private extension AppModel {
+    static let virtualHardwareManagerPath = "/Applications/.Karabiner-VirtualHIDDevice-Manager.app/Contents/MacOS/Karabiner-VirtualHIDDevice-Manager"
     static let companionModeKey = "companion.mode"
     static let companionEdgeKey = "companion.edge"
     static let selectedPeerKey = "companion.selectedPeer"

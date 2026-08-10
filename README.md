@@ -11,6 +11,7 @@ The app includes a live Xbox-style controller map, per-control remapping, adjust
 - Accessibility permission so Vibe Controller can move the pointer and send input
 - Swift 6.2 or a compatible Xcode toolchain when building from source
 - Universal Control configured in macOS when controlling another Mac natively
+- The one-time **Virtual Hardware Support** install on the lead Mac for seamless Universal Control handoff
 - Local-network permission on both Macs only when using the optional companion mode
 
 ## Build and run
@@ -29,35 +30,42 @@ To build a signed `.app` bundle instead:
 
 ```sh
 swift build
+swift build -c release --product VibeVirtualHIDBridge
+./Scripts/fetch_virtual_hid_driver.sh
+./Scripts/package_virtual_hid_support.sh
 VIBE_CONTROLLER_SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" ./Scripts/package_app.sh
 open "dist/Vibe Controller.app"
 ```
 
-The packaging script requires an Apple Development signing identity available in your login keychain. Set `VIBE_CONTROLLER_SIGNING_IDENTITY` to the exact value shown by `security find-identity -v -p codesigning`.
+The support packaging step combines Vibe Controller's narrowly scoped privileged bridge with the signed and notarized Karabiner DriverKit VirtualHIDDevice 8.2.0 package. The app packager embeds that combined installer in the app. Both Vibe executables must use the same Apple Development signing identity; set `VIBE_CONTROLLER_SIGNING_IDENTITY` to the exact value shown by `security find-identity -v -p codesigning`.
 
 ## First-run setup
 
 1. Connect the controller over Bluetooth or USB.
 2. Open Vibe Controller and follow the prompt to grant Accessibility access in **System Settings → Privacy & Security → Accessibility**.
 3. Return to the app and confirm that the header reports the controller as connected.
-4. Move the sticks and press buttons while watching the live diagnostics and blue controller-map highlights.
-5. Click any control on the map to change its action or shortcut.
-6. Adjust primary speed, precision speed, dead zone, response curve, smoothing, acceleration, inversion, and axis multipliers in the Cursor panel.
+4. For cross-Mac use, click **Install Support** in the Cross-Mac Control card and approve the one-time macOS installer. Then click **Activate Driver** and approve the Driver Extension in System Settings if macOS asks.
+5. Move the sticks and press buttons while watching the live diagnostics and blue controller-map highlights.
+6. Click any control on the map to change its action or shortcut.
+7. Adjust primary speed, precision speed, dead zone, response curve, smoothing, acceleration, inversion, and axis multipliers in the Cursor panel.
 
 Profiles are saved locally at `~/Library/Application Support/Vibe Controller/profiles.json`. Use **Import Profile** and **Export Profile** to move an individual profile between Macs.
 
 ## Universal Control between Macs
 
-Vibe Controller sends relative motion, mouse buttons, scrolling, and keyboard shortcuts through macOS's hardware input path. This is the kind of input Universal Control observes at a display edge, so the controller cursor can push through to a nearby Mac and continue moving there just like the lead Mac's trackpad.
+Vibe Controller sends relative motion, mouse buttons, scrolling, and keyboard shortcuts through a DriverKit virtual mouse and keyboard. macOS recognizes them as hardware devices, so Universal Control keeps forwarding their reports after the pointer crosses onto another Mac. Cursor-warp and synthetic-event APIs can reach Universal Control's edge, but macOS stops routing those events after handoff; the virtual devices are what make continued motion possible.
 
 Only the lead, controller-connected Mac needs Vibe Controller for this mode. The second Mac does not need the app, the companion receiver, or local-network permission.
 
 1. Set up Universal Control on both Macs using [Apple's instructions](https://support.apple.com/en-us/102459). The Macs should already let the lead Mac's trackpad move through the chosen display edge.
-2. Connect the Xbox controller to the lead Mac. USB is recommended: supported Microsoft Xbox USB devices use a direct HID reader that remains active while Universal Control owns the pointer on the second Mac.
-3. Run Vibe Controller on the lead Mac and leave **Cross-Mac Control → Mode** set to **Native Universal Control**. The hardware-relative handoff path is automatic.
-4. Move the primary stick through the same left or right edge used by Universal Control. Keep holding the stick and the pointer will continue across the second Mac.
-5. Click, scroll, dictate, capture a screenshot, or start an LT drag after the pointer arrives on the second Mac. Those mapped actions follow the Universal Control pointer target.
-6. Push back through the corresponding edge to return to the lead Mac.
+2. In Vibe Controller, click **Install Support**. Approve the administrator prompt. This installs the open-source [Karabiner DriverKit VirtualHIDDevice](https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice) and Vibe Controller's signed bridge.
+3. Click **Activate Driver**. If macOS opens System Settings, approve the Karabiner virtual HID Driver Extension. Return to Vibe Controller and click **Refresh**; the card should say **Virtual hardware ready**.
+4. Connect the Xbox controller to the lead Mac. USB is recommended: supported Microsoft Xbox USB devices use a direct HID reader that remains active while Universal Control owns the pointer on the second Mac.
+5. Leave **Cross-Mac Control → Mode** set to **Native Universal Control**. Move the primary stick through the same left or right edge used by Universal Control. Keep holding the stick and the pointer will continue across the second Mac.
+6. Click, scroll, dictate, capture a screenshot, or start an LT drag after the pointer arrives on the second Mac. Those mapped actions follow the Universal Control pointer target.
+7. Push back through the corresponding edge to return to the lead Mac.
+
+The installed bridge runs with elevated privileges because the virtual-HID daemon accepts only root clients. It accepts commands only through a pipe inherited from a valid `com.vibe-controller.app` process signed by the same development team; unrelated local processes are rejected. The older IOHIDSystem route remains available as a local-pointer fallback but is not presented as successful cross-Mac control.
 
 The app falls back to Apple's Game Controller framework for Bluetooth controllers and non-Microsoft gamepads. Direct USB input is preferred for the cleanest cross-Mac handoff because it is read on the lead Mac independently of Universal Control's active pointer target.
 
@@ -124,8 +132,11 @@ Both Macs need Accessibility and local-network permission. The Companion panel s
 ## Utilities and experiments
 
 - `ControllerProbe` prints controller input for low-level diagnostics.
-- `VirtualHIDExperiment` and `Experiments/VirtualHID` contain exploratory virtual-HID work.
+- `VirtualHIDExperiment` and `Experiments/VirtualHID` contain exploratory input-routing work.
+- `VibeVirtualHIDBridge` is the minimal privileged bridge used by the DriverKit virtual mouse and keyboard.
 - `Scripts/check_virtual_hid_provisioning.sh` checks the local signing and provisioning prerequisites for that experiment.
+- `Scripts/fetch_virtual_hid_driver.sh` downloads and verifies the pinned, notarized third-party driver package.
+- `Scripts/package_virtual_hid_support.sh` creates the combined one-time support installer.
 
 ## Development
 

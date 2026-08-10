@@ -32,6 +32,11 @@ fi
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$EXECUTABLE" "$APP_DIR/Contents/MacOS/VibeController"
 
+SUPPORT_INSTALLER="$ROOT_DIR/dist/VibeController-VirtualHardwareSupport-0.1.0.pkg"
+if [[ -f "$SUPPORT_INSTALLER" ]]; then
+  cp "$SUPPORT_INSTALLER" "$APP_DIR/Contents/Resources/"
+fi
+
 cat > "$APP_DIR/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

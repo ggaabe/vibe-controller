@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+  <title>Vibe Controller Virtual Hardware Support</title>
+  <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
+  <choices-outline>
+    <line choice="default">
+      <line choice="org.pqrs.Karabiner-DriverKit-VirtualHIDDevice"/>
+      <line choice="com.vibe-controller.virtual-hardware-support"/>
+    </line>
+  </choices-outline>
+  <choice id="default"/>
+  <choice id="org.pqrs.Karabiner-DriverKit-VirtualHIDDevice" visible="false">
+    <pkg-ref id="org.pqrs.Karabiner-DriverKit-VirtualHIDDevice"/>
+  </choice>
+  <pkg-ref id="org.pqrs.Karabiner-DriverKit-VirtualHIDDevice" version="8.2.0" onConclusion="none">Karabiner-DriverKit-VirtualHIDDevice-8.2.0.pkg</pkg-ref>
+  <choice id="com.vibe-controller.virtual-hardware-support" visible="false">
+    <pkg-ref id="com.vibe-controller.virtual-hardware-support"/>
+  </choice>
+  <pkg-ref id="com.vibe-controller.virtual-hardware-support" version="0.1.0" onConclusion="none">VibeController-Helper.pkg</pkg-ref>
+</installer-gui-script>

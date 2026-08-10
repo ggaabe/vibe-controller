@@ -1,6 +1,5 @@
 import AppKit
 import CoreGraphics
-import Darwin
 import Foundation
 import simd
 
@@ -32,6 +31,7 @@ struct CursorDiagnostics: Sendable {
 @MainActor
 final class CursorEngine {
     private var timer: DispatchSourceTimer?
+    private var diagnosticTimer: DispatchSourceTimer?
     private var lastTickTime: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
     private var leftStick = StickSnapshot()
     private var rightStick = StickSnapshot()
@@ -57,6 +57,7 @@ final class CursorEngine {
 
     deinit {
         timer?.cancel()
+        diagnosticTimer?.cancel()
     }
 
     func update(snapshot: ControllerSnapshot, cursorConfiguration: CursorConfiguration) {
@@ -240,7 +241,9 @@ final class CursorEngine {
                 state: .moving,
                 velocity: smoothedVelocity,
                 location: postedLocation,
-                message: "Posting hardware-relative movement for Universal Control."
+                message: universalControlInputBridge.isVirtualHardwareReady
+                    ? "Posting virtual hardware movement through Universal Control."
+                    : "Posting legacy relative movement on this Mac."
             )
             return
         }
@@ -325,18 +328,29 @@ final class CursorEngine {
             return "Accessibility permission is not granted."
         }
 
-        // Use the same cadence as normal stick motion. Universal Control's
-        // edge guard intentionally expects a short stream of relative reports,
-        // rather than one large teleport-style delta.
-        let steps = 14
-        let step = SIMD2<Double>(140.0 / Double(steps), 90.0 / Double(steps))
-        for index in 0..<steps {
-            moveCursor(by: step)
-            if index < steps - 1 {
-                usleep(8_000)
+        diagnosticTimer?.cancel()
+        var remainingReports = 750
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(8), leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard remainingReports > 0 else {
+                self.diagnosticTimer?.cancel()
+                self.diagnosticTimer = nil
+                self.publishDiagnostics(
+                    state: .idle,
+                    velocity: .zero,
+                    location: nil,
+                    message: "Completed the six-second cross-Mac cursor sweep."
+                )
+                return
             }
+            self.moveCursor(by: SIMD2<Double>(3, 0))
+            remainingReports -= 1
         }
-        return "Sent a test cursor nudge."
+        diagnosticTimer = timer
+        timer.resume()
+        return "Running a six-second cross-Mac cursor sweep."
     }
 
     private func publishDiagnostics(

@@ -142,7 +142,7 @@ struct MainWindowView: View {
                 Text("Test")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                Button("Test Cursor Nudge") {
+                Button("Test Cross-Mac Sweep") {
                     appModel.testCursorNudge()
                 }
                 .buttonStyle(.borderedProminent)
@@ -153,6 +153,13 @@ struct MainWindowView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+
+                Button("Capture Remote Proof") {
+                    appModel.captureRemoteProof()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!appModel.virtualHardwareReady)
             }
             .frame(width: 200, alignment: .leading)
             .padding(14)
@@ -453,13 +460,33 @@ private struct CompanionSettingsView: View {
             .pickerStyle(.menu)
 
             if appModel.companionMode == .off {
-                Label("Uses the lead Mac's native Universal Control edge automatically. The other Mac does not need Vibe Controller.", systemImage: "rectangle.connected.to.line.below")
+                Label("Uses virtual mouse hardware on the lead Mac so Universal Control keeps forwarding motion after the pointer crosses. The other Mac does not need Vibe Controller.", systemImage: "rectangle.connected.to.line.below")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
                 Text(appModel.nativeUniversalControlStatusText)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
+
+                if !appModel.virtualHardwareReady {
+                    HStack(spacing: 8) {
+                        if appModel.virtualHardwareInstallerAvailable {
+                            Button("Install Support") {
+                                appModel.openVirtualHardwareInstaller()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        if appModel.virtualHardwareDriverInstalled {
+                            Button("Activate Driver") {
+                                appModel.activateVirtualHardwareDriver()
+                            }
+                        }
+                        Button("Refresh") {
+                            appModel.refreshVirtualHardwareSupport()
+                        }
+                    }
+                    .controlSize(.small)
+                }
             } else if appModel.companionMode == .controller {
                 Picker("Handoff edge", selection: Binding(
                     get: { appModel.companionEdge },

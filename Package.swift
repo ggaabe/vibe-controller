@@ -12,6 +12,7 @@ let package = Package(
         .executable(name: "VibeController", targets: ["VibeController"]),
         .executable(name: "ControllerProbe", targets: ["ControllerProbe"]),
         .executable(name: "VirtualHIDExperiment", targets: ["VirtualHIDExperiment"]),
+        .executable(name: "VibeVirtualHIDBridge", targets: ["VibeVirtualHIDBridge"]),
     ],
     targets: [
         .executableTarget(
@@ -22,6 +23,16 @@ let package = Package(
         ),
         .executableTarget(
             name: "VirtualHIDExperiment"
+        ),
+        .executableTarget(
+            name: "VibeVirtualHIDBridge",
+            cSettings: [
+                .unsafeFlags(["-Wall", "-Wextra", "-Werror"]),
+            ],
+            linkerSettings: [
+                .linkedFramework("CoreFoundation"),
+                .linkedFramework("Security"),
+            ]
         ),
         .testTarget(
             name: "VibeControllerTests",

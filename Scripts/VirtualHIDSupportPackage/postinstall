@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+HELPER="/Library/PrivilegedHelperTools/com.vibe-controller.virtual-hid-bridge"
+chown root:wheel "$HELPER"
+chmod 4755 "$HELPER"
+
+exit 0
