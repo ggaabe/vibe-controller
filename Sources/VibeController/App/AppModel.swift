@@ -272,10 +272,19 @@ final class AppModel: ObservableObject {
     }
 
     var companionStatusText: String {
+        if companionMode == .off {
+            return cursorEngine.universalControlInputBridge.isAvailable
+                ? "Universal Control ready"
+                : "Quartz fallback"
+        }
         if isRoutingToCompanion {
             return "Routing to remote Mac"
         }
         return companionConnectionState.summary
+    }
+
+    var nativeUniversalControlStatusText: String {
+        cursorEngine.universalControlInputBridge.initializationMessage
     }
 
     func setCompanionMode(_ mode: CompanionMode) {
@@ -445,7 +454,11 @@ final class AppModel: ObservableObject {
     }
 
     func testCursorNudge() {
-        lastErrorMessage = cursorEngine.performDiagnosticNudge()
+        lastActionStatus = cursorEngine.performDiagnosticNudge()
+    }
+
+    func testLeftClick() {
+        lastActionStatus = actionEngine.performDiagnosticLeftClick()
     }
 
     func cursorBinding<Value>(_ keyPath: WritableKeyPath<CursorConfiguration, Value>) -> Binding<Value> {

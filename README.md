@@ -1,8 +1,8 @@
 # Vibe Controller
 
-Vibe Controller is a native macOS app that turns an Xbox-compatible game controller into a desktop input device. Use the analog sticks as primary and precision cursors, map controller buttons to mouse actions or keyboard shortcuts, scroll and switch Spaces with the D-pad, and optionally hand control across two Macs on the same network.
+Vibe Controller is a native macOS app that turns an Xbox-compatible game controller into a desktop input device. Use the analog sticks as primary and precision cursors, map controller buttons to mouse actions or keyboard shortcuts, scroll and switch Spaces with the D-pad, and move seamlessly between nearby Macs with macOS Universal Control.
 
-The app includes a live Xbox-style controller map, per-control remapping, adjustable cursor response, importable and exportable JSON profiles, input diagnostics, and an experimental companion mode for forwarding pointer and desktop actions to another Mac.
+The app includes a live Xbox-style controller map, per-control remapping, adjustable cursor response, importable and exportable JSON profiles, input diagnostics, native Universal Control handoff, and an experimental network companion mode for Macs that cannot use Universal Control.
 
 ## Requirements
 
@@ -10,7 +10,8 @@ The app includes a live Xbox-style controller map, per-control remapping, adjust
 - An Xbox-compatible controller connected over Bluetooth or USB
 - Accessibility permission so Vibe Controller can move the pointer and send input
 - Swift 6.2 or a compatible Xcode toolchain when building from source
-- Local-network permission on both Macs when using companion mode
+- Universal Control configured in macOS when controlling another Mac natively
+- Local-network permission on both Macs only when using the optional companion mode
 
 ## Build and run
 
@@ -44,6 +45,21 @@ The packaging script requires an Apple Development signing identity available in
 6. Adjust primary speed, precision speed, dead zone, response curve, smoothing, acceleration, inversion, and axis multipliers in the Cursor panel.
 
 Profiles are saved locally at `~/Library/Application Support/Vibe Controller/profiles.json`. Use **Import Profile** and **Export Profile** to move an individual profile between Macs.
+
+## Universal Control between Macs
+
+Vibe Controller sends relative motion, mouse buttons, scrolling, and keyboard shortcuts through macOS's hardware input path. This is the kind of input Universal Control observes at a display edge, so the controller cursor can push through to a nearby Mac and continue moving there just like the lead Mac's trackpad.
+
+Only the lead, controller-connected Mac needs Vibe Controller for this mode. The second Mac does not need the app, the companion receiver, or local-network permission.
+
+1. Set up Universal Control on both Macs using [Apple's instructions](https://support.apple.com/en-us/102459). The Macs should already let the lead Mac's trackpad move through the chosen display edge.
+2. Connect the Xbox controller to the lead Mac. USB is recommended: supported Microsoft Xbox USB devices use a direct HID reader that remains active while Universal Control owns the pointer on the second Mac.
+3. Run Vibe Controller on the lead Mac and leave **Cross-Mac Control → Mode** set to **Native Universal Control**. The hardware-relative handoff path is automatic.
+4. Move the primary stick through the same left or right edge used by Universal Control. Keep holding the stick and the pointer will continue across the second Mac.
+5. Click, scroll, dictate, capture a screenshot, or start an LT drag after the pointer arrives on the second Mac. Those mapped actions follow the Universal Control pointer target.
+6. Push back through the corresponding edge to return to the lead Mac.
+
+The app falls back to Apple's Game Controller framework for Bluetooth controllers and non-Microsoft gamepads. Direct USB input is preferred for the cleanest cross-Mac handoff because it is read on the lead Mac independently of Universal Control's active pointer target.
 
 ## Gabe's Defaults
 
@@ -93,9 +109,9 @@ Click a button, trigger, stick-click control, or D-pad direction on the controll
 
 Stick roles are configured separately by clicking either stick. Shortcut assignments and cursor settings are persisted automatically.
 
-## Two-Mac companion mode
+## Optional two-Mac companion mode
 
-Companion mode can forward cursor motion, clicks, scrolling, shortcuts, and Space-switch actions over the local network.
+Companion mode can forward cursor motion, clicks, scrolling, shortcuts, and Space-switch actions over the local network. It is an advanced fallback for Macs that cannot use native Universal Control; most two-Mac setups should use the Universal Control instructions above.
 
 1. Run Vibe Controller on both Macs.
 2. Set one Mac to **Receiver Mac**.

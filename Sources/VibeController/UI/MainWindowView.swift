@@ -147,6 +147,12 @@ struct MainWindowView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
+
+                Button("Test Left Click") {
+                    appModel.testLeftClick()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
             .frame(width: 200, alignment: .leading)
             .padding(14)
@@ -427,7 +433,7 @@ private struct CompanionSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Companion")
+                Text("Cross-Mac Control")
                     .font(.headline)
                 Spacer()
                 Text(appModel.companionStatusText)
@@ -446,17 +452,25 @@ private struct CompanionSettingsView: View {
             }
             .pickerStyle(.menu)
 
-            Picker("Handoff edge", selection: Binding(
-                get: { appModel.companionEdge },
-                set: { appModel.setCompanionEdge($0) }
-            )) {
-                ForEach(CompanionEdge.allCases) { edge in
-                    Text(edge.displayName).tag(edge)
-                }
-            }
-            .pickerStyle(.menu)
+            if appModel.companionMode == .off {
+                Label("Uses the lead Mac's native Universal Control edge automatically. The other Mac does not need Vibe Controller.", systemImage: "rectangle.connected.to.line.below")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
 
-            if appModel.companionMode == .controller {
+                Text(appModel.nativeUniversalControlStatusText)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            } else if appModel.companionMode == .controller {
+                Picker("Handoff edge", selection: Binding(
+                    get: { appModel.companionEdge },
+                    set: { appModel.setCompanionEdge($0) }
+                )) {
+                    ForEach(CompanionEdge.allCases) { edge in
+                        Text(edge.displayName).tag(edge)
+                    }
+                }
+                .pickerStyle(.menu)
+
                 Picker("Receiver", selection: Binding(
                     get: { appModel.selectedCompanionPeerID ?? "" },
                     set: { appModel.selectCompanionPeer($0.isEmpty ? nil : $0) }

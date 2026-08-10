@@ -14,7 +14,7 @@ enum CompanionMode: String, CaseIterable, Codable, Identifiable, Sendable {
     var displayName: String {
         switch self {
         case .off:
-            return "Off"
+            return "Native Universal Control"
         case .controller:
             return "Controller Mac"
         case .receiver:

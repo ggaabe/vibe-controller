@@ -46,10 +46,25 @@ final class ControllerManager: ObservableObject {
     private var connectedController: GCController?
     private var notificationTokens: [NSObjectProtocol] = []
     private var pollingTimer: DispatchSourceTimer?
+    private let xboxUSBReader: XboxUSBControllerReader
+    private var rawUSBState: XboxUSBInputState?
+    private var rawUSBControllerName: String?
 
     init() {
+        xboxUSBReader = XboxUSBControllerReader()
         GCController.shouldMonitorBackgroundEvents = true
         registerNotifications()
+        xboxUSBReader.onConnectionChanged = { [weak self] isConnected, name in
+            guard let self else { return }
+            self.rawUSBControllerName = isConnected ? name : nil
+            if !isConnected {
+                self.rawUSBState = nil
+                self.refreshConnectedController()
+            }
+        }
+        xboxUSBReader.onInput = { [weak self] state in
+            self?.updateSnapshot(fromRawUSBState: state)
+        }
         refreshConnectedController()
     }
 
@@ -142,6 +157,10 @@ final class ControllerManager: ObservableObject {
     }
 
     private func updateSnapshot(from controller: GCController, forcePublish: Bool = false) {
+        if rawUSBState != nil {
+            return
+        }
+
         guard let gamepad = controller.extendedGamepad else {
             setDisconnected()
             return
@@ -211,6 +230,28 @@ final class ControllerManager: ObservableObject {
         if !forcePublish, candidate == snapshot {
             return
         }
+        candidate.lastUpdated = Date()
+        snapshot = candidate
+        onSnapshot?(snapshot)
+    }
+
+    private func updateSnapshot(fromRawUSBState state: XboxUSBInputState) {
+        rawUSBState = state
+
+        let battery = connectedController?.battery
+        var candidate = ControllerSnapshot(
+            isConnected: true,
+            controllerName: rawUSBControllerName ?? connectedController?.vendorName ?? "Xbox Controller",
+            connectionSummary: "USB • Direct HID",
+            batteryLevel: battery?.batteryLevel,
+            batteryStateDescription: battery?.batteryState.vibeDescription,
+            pressedControls: state.pressedControls,
+            analogValues: state.analogValues,
+            leftStick: state.leftStick,
+            rightStick: state.rightStick,
+            lastUpdated: snapshot.lastUpdated
+        )
+        guard candidate != snapshot else { return }
         candidate.lastUpdated = Date()
         snapshot = candidate
         onSnapshot?(snapshot)

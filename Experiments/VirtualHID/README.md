@@ -5,9 +5,9 @@ treat it like hardware, rather than as a stream of synthetic Quartz events.
 
 ## Why this exists
 
-The current app uses Accessibility plus Core Graphics event posting. That works locally, but it does not make Vibe
-Controller a true hardware-like mouse in the eyes of the OS. The experiment here is aimed at the public virtual-device
-route instead.
+The original app used Accessibility plus absolute Core Graphics cursor positioning. That worked locally but could not
+push through a Universal Control display edge. This lab tested public and private virtual-device routes and ultimately
+identified the relative IOHIDSystem path now used by the app.
 
 ## Working hypothesis
 
@@ -17,7 +17,7 @@ If macOS accepts a `CoreHID` virtual mouse device and routes it through the norm
 - better interaction with system features than plain CGEvent synthesis
 - a route that is closer to Magic Trackpad behavior
 
-This is not yet proof that it will participate in Universal Control edge handoff. That remains unproven.
+The successful path has now been verified through a live Universal Control handoff between two Macs.
 
 ## Current scaffold
 
@@ -33,6 +33,15 @@ This is not yet proof that it will participate in Universal Control edge handoff
   Attempts the lower-level `IOHIDUserDeviceCreateWithProperties` route directly.
 - `swift run VirtualHIDExperiment --iokit-demo-motion`
   Attempts the lower-level route and, if creation succeeds, dispatches a few relative-motion reports.
+- `swift run VirtualHIDExperiment --event-system-move --dx 12 --repeat 10`
+  Tests private `IOHIDEventSystemClientDispatchEvent`. On a normally signed app, WindowServer rejects this without
+  `com.apple.private.hid.client.event-dispatch`.
+- `swift run VirtualHIDExperiment --iohid-post-move --dx 12 --repeat 10 --hid-manager-event`
+  Posts relative IOHIDSystem motion through the HID-manager path used by the app.
+- `swift run VirtualHIDExperiment --iohid-post-click`, `--iohid-post-key`, and `--iohid-post-scroll`
+  Exercise the equivalent button, keyboard, and wheel paths.
+- `swift run VirtualHIDExperiment --iohid-drag-move`
+  Verifies that one persistent IOHIDSystem connection preserves left-button state while relative motion is posted.
 - `./Scripts/check_virtual_hid_provisioning.sh`
   Inspects installed signing identities and provisioning profiles for the required virtual HID entitlement.
 - `./Scripts/package_virtual_hid_lab.sh`
@@ -45,16 +54,22 @@ This is not yet proof that it will participate in Universal Control edge handoff
 - System logs show `IOServiceOpen:0xe00002c2`, which maps to `kIOReturnBadArgument`.
 - Apple’s `IOHIDUserDevice.h` header explicitly says the entitlement `com.apple.developer.hid.virtual.device` is required to create a virtual HID device.
 - This Mac currently has no installed provisioning profile that grants `com.apple.developer.hid.virtual.device`.
+- The private event-system dispatcher reaches WindowServer, but WindowServer rejects it without the private
+  `com.apple.private.hid.client.event-dispatch` entitlement.
+- `IOHIDPostEvent` with `kIOHIDSetRelativeCursorPosition | kIOHIDPostHIDManagerEvent` succeeds from the normally
+  signed app and enters IOHIDSystem's relative pointing-device pipeline.
+- That relative HID-manager path triggers Universal Control's hot zone, transfers pointing ownership to the second
+  Mac, and continues moving, clicking, typing, and scrolling on the target Mac.
 
-## Next steps
+## Result
 
-1. Confirm whether a properly provisioned entitlement-bearing binary changes the `IOServiceOpen` failure.
-2. If virtual device creation can be made to succeed, re-run the relative-motion test and confirm whether the local cursor moves without CGEvent synthesis.
-3. If local motion works, test whether macOS treats the virtual mouse like a real pointing device at display edges.
-4. Only after local device creation works should Universal Control edge handoff be tested.
+The app now keeps one IOHIDSystem parameter connection open and posts relative pointer, button, keyboard, and scroll
+events through it. The public CoreHID virtual-device route remains useful research for a future entitlement-bearing
+distribution, but it is no longer required for Universal Control support.
 
 ## Constraints
 
-- This route depends on Apple SDK availability and runtime support.
-- It may require additional entitlements or packaging beyond the current app bundle.
-- Even if local pointer movement works, Universal Control compatibility is still an open question.
+- `IOHIDPostEvent` is an older, deprecated IOKit API. It works on the tested macOS release but should be reverified on
+  new major macOS versions.
+- Public CoreHID virtual devices still require Apple's restricted virtual-device entitlement.
+- The private event-system route is retained only as a diagnostic and is not used by the app.

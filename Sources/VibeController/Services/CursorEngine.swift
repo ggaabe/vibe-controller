@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Darwin
 import Foundation
 import simd
 
@@ -37,6 +38,7 @@ final class CursorEngine {
     private var cursorConfiguration = ControllerProfile.gabesDefaults.cursor
     private var smoothedVelocity = SIMD2<Double>.zero
     private let eventSource = CGEventSource(stateID: .combinedSessionState)
+    let universalControlInputBridge: UniversalControlInputBridge
     private var lastKnownCursorPosition: CGPoint?
     private var lastSyntheticCursorUpdateTime: CFAbsoluteTime = 0
 
@@ -47,7 +49,8 @@ final class CursorEngine {
     var onDiagnostics: ((CursorDiagnostics) -> Void)?
     var movementInterceptor: ((CGPoint, SIMD2<Double>) -> Bool)?
 
-    init() {
+    init(universalControlInputBridge: UniversalControlInputBridge = UniversalControlInputBridge()) {
+        self.universalControlInputBridge = universalControlInputBridge
         lastKnownCursorPosition = CGEvent(source: nil)?.location ?? .zero
         startTimer()
     }
@@ -64,6 +67,10 @@ final class CursorEngine {
 
     func beginLeftDrag() {
         guard accessibilityTrusted, !isDraggingLeftMouse else { return }
+        if universalControlInputBridge.postMouseButton(.left, isDown: true) {
+            isDraggingLeftMouse = true
+            return
+        }
         let location = currentCursorPosition()
         postMouseEvent(type: .leftMouseDown, location: location, button: .left)
         isDraggingLeftMouse = true
@@ -71,6 +78,10 @@ final class CursorEngine {
 
     func endLeftDrag() {
         guard isDraggingLeftMouse else { return }
+        if universalControlInputBridge.postMouseButton(.left, isDown: false) {
+            isDraggingLeftMouse = false
+            return
+        }
         let location = currentCursorPosition()
         postMouseEvent(type: .leftMouseUp, location: location, button: .left)
         isDraggingLeftMouse = false
@@ -221,6 +232,19 @@ final class CursorEngine {
             )
             return
         }
+
+        if universalControlInputBridge.postRelativePointer(delta: delta) {
+            let postedLocation = CGEvent(source: nil)?.location ?? currentPosition
+            lastKnownCursorPosition = postedLocation
+            publishDiagnostics(
+                state: .moving,
+                velocity: smoothedVelocity,
+                location: postedLocation,
+                message: "Posting hardware-relative movement for Universal Control."
+            )
+            return
+        }
+
         let unclamped = CGPoint(x: currentPosition.x + delta.x, y: currentPosition.y + delta.y)
         let target = clampedToVisibleScreens(unclamped)
         recordSyntheticCursorPosition(target)
@@ -301,7 +325,17 @@ final class CursorEngine {
             return "Accessibility permission is not granted."
         }
 
-        moveCursor(by: SIMD2<Double>(140, 90))
+        // Use the same cadence as normal stick motion. Universal Control's
+        // edge guard intentionally expects a short stream of relative reports,
+        // rather than one large teleport-style delta.
+        let steps = 14
+        let step = SIMD2<Double>(140.0 / Double(steps), 90.0 / Double(steps))
+        for index in 0..<steps {
+            moveCursor(by: step)
+            if index < steps - 1 {
+                usleep(8_000)
+            }
+        }
         return "Sent a test cursor nudge."
     }
 

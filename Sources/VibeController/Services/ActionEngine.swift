@@ -320,6 +320,13 @@ final class ActionEngine {
     }
 
     private func postShortcutDown(_ shortcut: ShortcutDescriptor) {
+        if cursorEngine.universalControlInputBridge.postShortcutDown(
+            keyCode: shortcut.keyCode,
+            flags: shortcut.eventFlags
+        ) {
+            return
+        }
+
         var activeFlags = CGEventFlags()
         for modifier in shortcut.orderedModifiers {
             activeFlags.insert(modifier.cgEventFlag)
@@ -344,6 +351,13 @@ final class ActionEngine {
     }
 
     private func postShortcutUp(_ shortcut: ShortcutDescriptor) {
+        if cursorEngine.universalControlInputBridge.postShortcutUp(
+            keyCode: shortcut.keyCode,
+            flags: shortcut.eventFlags
+        ) {
+            return
+        }
+
         guard let keyUp = CGEvent(
                 keyboardEventSource: eventSource,
                 virtualKey: CGKeyCode(shortcut.keyCode),
@@ -368,6 +382,11 @@ final class ActionEngine {
     }
 
     private func postMouseClick(button: CGMouseButton) {
+        if cursorEngine.universalControlInputBridge.postMouseButton(button, isDown: true) {
+            _ = cursorEngine.universalControlInputBridge.postMouseButton(button, isDown: false)
+            return
+        }
+
         let location = cursorEngine.currentCursorPosition()
         let downType: CGEventType
         let upType: CGEventType
@@ -392,6 +411,31 @@ final class ActionEngine {
     }
 
     private func postDoubleClick() {
+        if cursorEngine.universalControlInputBridge.isAvailable {
+            var completed = true
+            for clickState in [1, 2] {
+                guard cursorEngine.universalControlInputBridge.postMouseButton(
+                    .left,
+                    isDown: true,
+                    clickCount: clickState
+                ) else {
+                    completed = false
+                    break
+                }
+                guard cursorEngine.universalControlInputBridge.postMouseButton(
+                    .left,
+                    isDown: false,
+                    clickCount: clickState
+                ) else {
+                    completed = false
+                    break
+                }
+            }
+            if completed {
+                return
+            }
+        }
+
         let location = cursorEngine.currentCursorPosition()
         for clickState in [1, 2] {
             guard let down = CGEvent(
@@ -415,6 +459,13 @@ final class ActionEngine {
     }
 
     private func postScroll(vertical: Int32, horizontal: Int32) {
+        if cursorEngine.universalControlInputBridge.postScroll(
+            vertical: vertical,
+            horizontal: horizontal
+        ) {
+            return
+        }
+
         guard let event = CGEvent(
             scrollWheelEvent2Source: eventSource,
             units: .line,
@@ -449,6 +500,13 @@ final class ActionEngine {
         }
     }
 
+    func performDiagnosticLeftClick() -> String {
+        guard isEnabled else { return "Runtime is disabled." }
+        guard accessibilityTrusted else { return "Accessibility permission is not granted." }
+        postMouseClick(button: .left)
+        return "Sent a test left click."
+    }
+
     private func performCompanionMouse(button: CompanionMouseButton, phase: CompanionMousePhase) {
         switch (button, phase) {
         case (.left, .down):
@@ -475,6 +533,23 @@ final class ActionEngine {
     private func triggerSpaceSwitch(_ direction: SpaceSwitchDirection) {
         let keyCode: Int = direction == .left ? 123 : 124
         let directionLabel = direction == .left ? "left" : "right"
+        let hardwareShortcut = ShortcutDescriptor(
+            keyCode: UInt16(keyCode),
+            modifiers: [.control]
+        )
+
+        if cursorEngine.universalControlInputBridge.postShortcutDown(
+            keyCode: hardwareShortcut.keyCode,
+            flags: hardwareShortcut.eventFlags
+        ) {
+            _ = cursorEngine.universalControlInputBridge.postShortcutUp(
+                keyCode: hardwareShortcut.keyCode,
+                flags: hardwareShortcut.eventFlags
+            )
+            onActionStatus?("Switched Space \(directionLabel) through the hardware input path.")
+            return
+        }
+
         var scriptFailureMessage: String?
         let scriptSource = """
         tell application "System Events"
@@ -493,11 +568,7 @@ final class ActionEngine {
             scriptFailureMessage = scriptError?[NSAppleScript.errorMessage] as? String ?? "unknown AppleScript error"
         }
 
-        let fallback = ShortcutDescriptor(
-            keyCode: UInt16(keyCode),
-            modifiers: [.control]
-        )
-        postShortcutTap(fallback)
+        postShortcutTap(hardwareShortcut)
 
         let fallbackLabel = "Control-\(direction == .left ? "Left" : "Right")"
         if hasEnabledSystemShortcut(keyCode: keyCode, requiredFlags: [.maskControl]) {
