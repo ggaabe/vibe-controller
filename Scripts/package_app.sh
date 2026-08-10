@@ -44,6 +44,13 @@ fi
 cp "$SUPPORT_INSTALLER" "$APP_DIR/Contents/Resources/"
 cp "$ROOT_DIR/THIRD_PARTY_NOTICES.md" "$APP_DIR/Contents/Resources/"
 
+APP_ICON="$ROOT_DIR/Resources/AppIcon.icns"
+if [[ ! -f "$APP_ICON" ]]; then
+  echo "Missing app icon at $APP_ICON"
+  exit 1
+fi
+cp "$APP_ICON" "$APP_DIR/Contents/Resources/AppIcon.icns"
+
 cat > "$APP_DIR/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -61,6 +68,10 @@ cat > "$APP_DIR/Contents/Info.plist" <<'EOF'
   <string>Vibe Controller</string>
   <key>CFBundleDisplayName</key>
   <string>Vibe Controller</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleIconName</key>
+  <string>AppIcon</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
