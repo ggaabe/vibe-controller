@@ -16,5 +16,5 @@
   <choice id="com.vibe-controller.virtual-hardware-support" visible="false">
     <pkg-ref id="com.vibe-controller.virtual-hardware-support"/>
   </choice>
-  <pkg-ref id="com.vibe-controller.virtual-hardware-support" version="0.1.0" onConclusion="none">VibeController-Helper.pkg</pkg-ref>
+  <pkg-ref id="com.vibe-controller.virtual-hardware-support" version="__VIBE_CONTROLLER_VERSION__" onConclusion="none">VibeController-Helper.pkg</pkg-ref>
 </installer-gui-script>

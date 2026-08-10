@@ -8,9 +8,16 @@ Vibe Controller is a native macOS app that turns an Xbox-compatible game control
 
 The app includes a live Xbox-style controller map, per-control remapping, adjustable cursor response, importable and exportable JSON profiles, input diagnostics, native Universal Control handoff, and an experimental network companion mode for Macs that cannot use Universal Control.
 
+## Download
+
+Signed and Apple-notarized Apple-silicon builds are published on the [GitHub Releases page](https://github.com/ggaabe/vibe-controller/releases). Download the `.dmg`, open it, and drag **Vibe Controller** to **Applications**. The support installer is already inside the app; the separate `.pkg` release asset is provided for repair or managed deployment. The app guides you through Accessibility and its one-time Virtual Hardware Support installation on first launch.
+
+If the Releases page does not have a build yet, use the source instructions below. Development builds are intentionally kept separate from public downloads so users never receive an unnotarized artifact by mistake.
+
 ## Requirements
 
 - macOS 14 or newer
+- An Apple-silicon Mac for the packaged release
 - An Xbox-compatible controller connected over Bluetooth or USB
 - Accessibility permission so Vibe Controller can move the pointer and send input
 - Swift 6.2 or a compatible Xcode toolchain when building from source
@@ -81,7 +88,7 @@ Yes—the HID component is required. Universal Control stops forwarding ordinary
 
 `THIRD_PARTY_NOTICES.md` is embedded in every packaged app. The source repository does not commit the third-party binary: the packaging script downloads it from the tagged upstream release, verifies its exact checksum and Apple notarization, and then embeds it in the app's Resources directory.
 
-For a public downloadable release, sign the app and bridge with a Developer ID Application identity, provide `VIBE_CONTROLLER_INSTALLER_SIGNING_IDENTITY="Developer ID Installer: …"`, and notarize the finished distribution. Local source builds can use an Apple Development identity and an unsigned outer installer, but macOS will still show the expected administrator approval.
+Public downloads are built by the tag-driven release workflow, which requires Developer ID Application and Installer certificates, notarizes the installer, app, and DMG, validates them with Gatekeeper, and publishes SHA-256 checksums. See [RELEASING.md](RELEASING.md) for credential setup and release steps. Local source builds can use an Apple Development identity and an unsigned outer installer, but macOS will still show the expected administrator approval.
 
 ## Gabe's Defaults
 
@@ -151,6 +158,7 @@ Both Macs need Accessibility and local-network permission. The Companion panel s
 - `Scripts/check_virtual_hid_provisioning.sh` checks the local signing and provisioning prerequisites for that experiment.
 - `Scripts/fetch_virtual_hid_driver.sh` downloads and verifies the pinned, notarized third-party driver package.
 - `Scripts/package_virtual_hid_support.sh` creates the combined one-time support installer.
+- `Scripts/build_release.sh` validates the complete DMG and installer release path; public mode also signs, notarizes, and checks Gatekeeper acceptance.
 
 ## Development
 

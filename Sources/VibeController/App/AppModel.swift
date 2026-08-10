@@ -1087,13 +1087,13 @@ final class AppModel: ObservableObject {
 
     private var virtualHardwareInstallerURL: URL? {
         if let bundled = Bundle.main.url(
-            forResource: "VibeController-VirtualHardwareSupport-0.1.0",
+            forResource: "VibeController-VirtualHardwareSupport",
             withExtension: "pkg"
         ) {
             return bundled
         }
         let developmentCopy = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("dist/VibeController-VirtualHardwareSupport-0.1.0.pkg")
+            .appendingPathComponent("dist/VibeController-VirtualHardwareSupport.pkg")
         return FileManager.default.fileExists(atPath: developmentCopy.path) ? developmentCopy : nil
     }
 

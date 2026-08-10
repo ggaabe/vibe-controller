@@ -1,0 +1,152 @@
+name: Publish macOS release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Sign, notarize, and publish
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate the release tag
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must look like v1.2.3; received $GITHUB_REF_NAME"
+            exit 1
+          fi
+          echo "VIBE_CONTROLLER_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Require release credentials
+        shell: bash
+        env:
+          APPLICATION_P12: ${{ secrets.DEVELOPER_ID_APPLICATION_P12_BASE64 }}
+          APPLICATION_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_P12_PASSWORD }}
+          INSTALLER_P12: ${{ secrets.DEVELOPER_ID_INSTALLER_P12_BASE64 }}
+          INSTALLER_PASSWORD: ${{ secrets.DEVELOPER_ID_INSTALLER_P12_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          for variable in \
+            APPLICATION_P12 \
+            APPLICATION_PASSWORD \
+            INSTALLER_P12 \
+            INSTALLER_PASSWORD \
+            NOTARY_KEY \
+            NOTARY_KEY_ID \
+            NOTARY_ISSUER_ID
+          do
+            if [[ -z "${!variable}" ]]; then
+              echo "Missing required GitHub Actions secret for $variable"
+              exit 1
+            fi
+          done
+
+      - name: Import Developer ID certificates
+        shell: bash
+        env:
+          APPLICATION_P12: ${{ secrets.DEVELOPER_ID_APPLICATION_P12_BASE64 }}
+          APPLICATION_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_P12_PASSWORD }}
+          INSTALLER_P12: ${{ secrets.DEVELOPER_ID_INSTALLER_P12_BASE64 }}
+          INSTALLER_PASSWORD: ${{ secrets.DEVELOPER_ID_INSTALLER_P12_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          keychain="$RUNNER_TEMP/vibe-controller-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          application_p12="$RUNNER_TEMP/developer-id-application.p12"
+          installer_p12="$RUNNER_TEMP/developer-id-installer.p12"
+          notary_key="$RUNNER_TEMP/AuthKey_${NOTARY_KEY_ID}.p8"
+
+          printf '%s' "$APPLICATION_P12" | base64 --decode > "$application_p12"
+          printf '%s' "$INSTALLER_P12" | base64 --decode > "$installer_p12"
+          printf '%s' "$NOTARY_KEY" | base64 --decode > "$notary_key"
+          chmod 600 "$application_p12" "$installer_p12" "$notary_key"
+
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security default-keychain -s "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security import "$application_p12" \
+            -k "$keychain" \
+            -P "$APPLICATION_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security import "$installer_p12" \
+            -k "$keychain" \
+            -P "$INSTALLER_PASSWORD" \
+            -T /usr/bin/productbuild \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain"
+
+          application_identity="$(security find-identity -v -p codesigning "$keychain" \
+            | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' \
+            | head -n 1)"
+          installer_identity="$(security find-identity -v -p basic "$keychain" \
+            | sed -n 's/.*"\(Developer ID Installer:.*\)"/\1/p' \
+            | head -n 1)"
+          if [[ -z "$application_identity" || -z "$installer_identity" ]]; then
+            echo "The imported files did not provide both Developer ID identities."
+            exit 1
+          fi
+
+          echo "VIBE_CONTROLLER_SIGNING_IDENTITY=$application_identity" >> "$GITHUB_ENV"
+          echo "VIBE_CONTROLLER_INSTALLER_SIGNING_IDENTITY=$installer_identity" >> "$GITHUB_ENV"
+          echo "VIBE_CONTROLLER_NOTARY_KEY_PATH=$notary_key" >> "$GITHUB_ENV"
+          echo "VIBE_CONTROLLER_NOTARY_KEY_ID=$NOTARY_KEY_ID" >> "$GITHUB_ENV"
+          echo "VIBE_CONTROLLER_NOTARY_ISSUER_ID=$NOTARY_ISSUER_ID" >> "$GITHUB_ENV"
+
+      - name: Build and validate signed release artifacts
+        shell: bash
+        env:
+          VIBE_CONTROLLER_RELEASE_MODE: distribution
+          VIBE_CONTROLLER_BUILD_NUMBER: ${{ github.run_number }}
+        run: ./Scripts/build_release.sh "$VIBE_CONTROLLER_VERSION"
+
+      - name: Publish the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/release/Vibe-Controller-$VIBE_CONTROLLER_VERSION-arm64.dmg" \
+            "dist/release/VibeController-VirtualHardwareSupport-$VIBE_CONTROLLER_VERSION-arm64.pkg" \
+            "dist/release/SHA256SUMS.txt" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --title "Vibe Controller $VIBE_CONTROLLER_VERSION"
+
+      - name: Remove temporary signing credentials
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain \
+            "$RUNNER_TEMP/vibe-controller-signing.keychain-db" \
+            2>/dev/null || true
+          rm -f \
+            "$RUNNER_TEMP/developer-id-application.p12" \
+            "$RUNNER_TEMP/developer-id-installer.p12" \
+            "$RUNNER_TEMP"/AuthKey_*.p8
