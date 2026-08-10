@@ -75,6 +75,21 @@ struct ShortcutDescriptor: Codable, Hashable, Sendable {
 
     static let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
 
+    static let functionKeyCodes: [Int: UInt16] = [
+        1: 122,
+        2: 120,
+        3: 99,
+        4: 118,
+        5: 96,
+        6: 97,
+        7: 98,
+        8: 100,
+        9: 101,
+        10: 109,
+        11: 103,
+        12: 111,
+    ]
+
     private static let systemConflicts: [SystemConflict] = [
         SystemConflict(
             keyCode: 49,

@@ -36,9 +36,24 @@ struct MappingSheetView: View {
                             shortcut: $mapping.shortcut,
                             isCapturing: $isCapturingShortcut
                         )
-                        Text("System-managed shortcuts like ⌘⌃⇧4 may not reach the capture field. Use a quick set button if macOS intercepts the key combo. Use Clear Shortcut to remove a mapping.")
+                        Text("Click the field and press a shortcut, or use a quick set button for a system-owned key. Use Clear Shortcut to remove a mapping.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                        Text("Function keys")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6),
+                            spacing: 8
+                        ) {
+                            ForEach(1...12, id: \.self) { number in
+                                Button("F\(number)") {
+                                    guard let keyCode = ShortcutDescriptor.functionKeyCodes[number] else { return }
+                                    mapping.shortcut = ShortcutDescriptor(keyCode: keyCode, modifiers: [])
+                                    isCapturingShortcut = false
+                                }
+                            }
+                        }
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 10) {
                                 Button("Return") {
