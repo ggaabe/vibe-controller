@@ -4,31 +4,18 @@ import IOKit
 import IOKit.hidsystem
 import simd
 
-/// Prefers a DriverKit-backed virtual mouse and keyboard that Universal Control
-/// treats like physical hardware, with IOHIDSystem retained as a local-only
-/// compatibility fallback.
-@MainActor
-final class UniversalControlInputBridge {
-    private let virtualHIDBridge: PrivilegedVirtualHIDBridge
-    private var iohidInitializationMessage: String
+private final class LegacyHIDEventPoster: @unchecked Sendable {
+    private let lock = NSLock()
     private var connection: io_connect_t?
-    private var pendingPointerDelta = SIMD2<Double>.zero
-    private var virtualButtons: UInt32 = 0
-    var onStatusChange: (() -> Void)? {
-        didSet {
-            virtualHIDBridge.onStatusChange = onStatusChange
-        }
-    }
+    let initializationMessage: String
 
     init() {
-        virtualHIDBridge = PrivilegedVirtualHIDBridge()
-        iohidInitializationMessage = "IOHIDSystem is unavailable; using Quartz cursor fallback."
-
         let service = IOServiceGetMatchingService(
             kIOMainPortDefault,
             IOServiceMatching(kIOHIDSystemClass)
         )
         guard service != IO_OBJECT_NULL else {
+            initializationMessage = "IOHIDSystem is unavailable; using Quartz cursor fallback."
             return
         }
         defer { IOObjectRelease(service) }
@@ -41,7 +28,7 @@ final class UniversalControlInputBridge {
             &openedConnection
         )
         guard result == KERN_SUCCESS else {
-            iohidInitializationMessage = String(
+            initializationMessage = String(
                 format: "Could not open IOHIDSystem (0x%08x); using Quartz cursor fallback.",
                 result
             )
@@ -49,7 +36,7 @@ final class UniversalControlInputBridge {
         }
 
         connection = openedConnection
-        iohidInitializationMessage = "Legacy relative pointer fallback is ready."
+        initializationMessage = "Legacy relative pointer fallback is ready."
     }
 
     deinit {
@@ -59,7 +46,201 @@ final class UniversalControlInputBridge {
     }
 
     var isAvailable: Bool {
-        virtualHIDBridge.isPointingReady || connection != nil
+        lock.lock()
+        defer { lock.unlock() }
+        return connection != nil
+    }
+
+    func post(
+        eventType: UInt32,
+        eventData: inout NXEventData,
+        includeGlobalFlags: Bool,
+        eventFlags: UInt32
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let connection else { return false }
+
+        var options = UInt32(kIOHIDSetRelativeCursorPosition | kIOHIDPostHIDManagerEvent)
+        if includeGlobalFlags {
+            options |= UInt32(kIOHIDSetGlobalEventFlags)
+        }
+
+        let result = IOHIDPostEvent(
+            connection,
+            eventType,
+            IOGPoint(x: 0, y: 0),
+            &eventData,
+            UInt32(kNXEventDataVersion),
+            eventFlags,
+            options
+        )
+        return result == KERN_SUCCESS
+    }
+}
+
+private final class RelativePointerOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    private let virtualTransport: VirtualHIDCommandTransport
+    private let legacyPoster: LegacyHIDEventPoster
+    private var pendingDelta = SIMD2<Double>.zero
+    private var buttons: UInt32 = 0
+
+    init(
+        virtualTransport: VirtualHIDCommandTransport,
+        legacyPoster: LegacyHIDEventPoster
+    ) {
+        self.virtualTransport = virtualTransport
+        self.legacyPoster = legacyPoster
+    }
+
+    var isVirtualPointingReady: Bool {
+        virtualTransport.isPointingReady
+    }
+
+    func postRelativePointer(delta: SIMD2<Double>) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        pendingDelta += delta
+        let dx = Int32(clamping: Int(pendingDelta.x.rounded(.towardZero)))
+        let dy = Int32(clamping: Int(pendingDelta.y.rounded(.towardZero)))
+        guard dx != 0 || dy != 0 else { return true }
+
+        var eventData = NXEventData()
+        eventData.mouseMove.dx = dx
+        eventData.mouseMove.dy = dy
+
+        let posted = postVirtualPointer(dx: dx, dy: dy) || legacyPoster.post(
+            eventType: UInt32(NX_MOUSEMOVED),
+            eventData: &eventData,
+            includeGlobalFlags: false,
+            eventFlags: 0
+        )
+        guard posted else {
+            pendingDelta = .zero
+            return false
+        }
+
+        pendingDelta -= SIMD2<Double>(Double(dx), Double(dy))
+        return true
+    }
+
+    func postMouseButton(_ button: CGMouseButton, isDown: Bool, clickCount: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let mask = UInt32(1) << UInt32(button.rawValue)
+        if isDown {
+            buttons |= mask
+        } else {
+            buttons &= ~mask
+        }
+        if virtualTransport.postPointing(x: 0, y: 0, buttons: buttons) {
+            return true
+        }
+
+        let eventType: UInt32
+        switch (button, isDown) {
+        case (.left, true):
+            eventType = UInt32(NX_LMOUSEDOWN)
+        case (.left, false):
+            eventType = UInt32(NX_LMOUSEUP)
+        case (.right, true):
+            eventType = UInt32(NX_RMOUSEDOWN)
+        case (.right, false):
+            eventType = UInt32(NX_RMOUSEUP)
+        case (_, true):
+            eventType = UInt32(NX_OMOUSEDOWN)
+        case (_, false):
+            eventType = UInt32(NX_OMOUSEUP)
+        }
+
+        var eventData = NXEventData()
+        eventData.mouse.buttonNumber = UInt8(clamping: Int(button.rawValue))
+        eventData.mouse.click = Int32(clamping: clickCount)
+        eventData.mouse.pressure = isDown ? 255 : 0
+        return legacyPoster.post(
+            eventType: eventType,
+            eventData: &eventData,
+            includeGlobalFlags: false,
+            eventFlags: 0
+        )
+    }
+
+    func postScroll(vertical: Int32, horizontal: Int32) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if virtualTransport.postPointing(
+            x: 0,
+            y: 0,
+            verticalWheel: Int8(clamping: vertical),
+            horizontalWheel: Int8(clamping: horizontal),
+            buttons: buttons
+        ) {
+            return true
+        }
+
+        var eventData = NXEventData()
+        eventData.scrollWheel.deltaAxis1 = Int16(clamping: Int(vertical))
+        eventData.scrollWheel.deltaAxis2 = Int16(clamping: Int(horizontal))
+        eventData.scrollWheel.fixedDeltaAxis1 = vertical.multipliedReportingOverflow(by: 65_536).partialValue
+        eventData.scrollWheel.fixedDeltaAxis2 = horizontal.multipliedReportingOverflow(by: 65_536).partialValue
+        eventData.scrollWheel.pointDeltaAxis1 = vertical
+        eventData.scrollWheel.pointDeltaAxis2 = horizontal
+        return legacyPoster.post(
+            eventType: UInt32(NX_SCROLLWHEELMOVED),
+            eventData: &eventData,
+            includeGlobalFlags: false,
+            eventFlags: 0
+        )
+    }
+
+    private func postVirtualPointer(dx: Int32, dy: Int32) -> Bool {
+        guard virtualTransport.isPointingReady else { return false }
+        var remainingX = dx
+        var remainingY = dy
+        repeat {
+            let stepX = Int8(clamping: remainingX)
+            let stepY = Int8(clamping: remainingY)
+            guard virtualTransport.postPointing(x: stepX, y: stepY, buttons: buttons) else {
+                return false
+            }
+            remainingX -= Int32(stepX)
+            remainingY -= Int32(stepY)
+        } while remainingX != 0 || remainingY != 0
+        return true
+    }
+}
+
+/// Prefers a DriverKit-backed virtual mouse and keyboard that Universal Control
+/// treats like physical hardware, with IOHIDSystem retained as a local-only
+/// compatibility fallback.
+@MainActor
+final class UniversalControlInputBridge {
+    private let virtualHIDBridge: PrivilegedVirtualHIDBridge
+    private nonisolated let legacyPoster: LegacyHIDEventPoster
+    private nonisolated let relativePointerOutput: RelativePointerOutput
+    var onStatusChange: (() -> Void)? {
+        didSet {
+            virtualHIDBridge.onStatusChange = onStatusChange
+        }
+    }
+
+    init() {
+        let virtualHIDBridge = PrivilegedVirtualHIDBridge()
+        let legacyPoster = LegacyHIDEventPoster()
+        self.virtualHIDBridge = virtualHIDBridge
+        self.legacyPoster = legacyPoster
+        relativePointerOutput = RelativePointerOutput(
+            virtualTransport: virtualHIDBridge.commandTransport,
+            legacyPoster: legacyPoster
+        )
+    }
+
+    var isAvailable: Bool {
+        virtualHIDBridge.isPointingReady || legacyPoster.isAvailable
     }
 
     var isVirtualHardwareReady: Bool {
@@ -86,112 +267,31 @@ final class UniversalControlInputBridge {
         if isVirtualHardwareReady {
             return virtualHIDBridge.statusMessage
         }
-        return "\(virtualHIDBridge.statusMessage) \(iohidInitializationMessage)"
+        return "\(virtualHIDBridge.statusMessage) \(legacyPoster.initializationMessage)"
     }
 
     func refreshVirtualHardwareSupport() {
         virtualHIDBridge.startIfInstalled()
     }
 
-    func postRelativePointer(delta: SIMD2<Double>) -> Bool {
-        pendingPointerDelta += delta
-
-        let dx = Int32(clamping: Int(pendingPointerDelta.x.rounded(.towardZero)))
-        let dy = Int32(clamping: Int(pendingPointerDelta.y.rounded(.towardZero)))
-        guard dx != 0 || dy != 0 else {
-            return true
-        }
-
-        var eventData = NXEventData()
-        eventData.mouseMove.dx = dx
-        eventData.mouseMove.dy = dy
-
-        let posted: Bool
-        if virtualHIDBridge.isPointingReady {
-            posted = postVirtualPointer(dx: dx, dy: dy)
-        } else {
-            posted = post(
-                eventType: UInt32(NX_MOUSEMOVED),
-                eventData: &eventData,
-                includeGlobalFlags: false,
-                eventFlags: 0
-            )
-        }
-
-        guard posted else {
-            pendingPointerDelta = .zero
-            return false
-        }
-
-        pendingPointerDelta -= SIMD2<Double>(Double(dx), Double(dy))
-        return true
+    nonisolated var isVirtualPointingReady: Bool {
+        relativePointerOutput.isVirtualPointingReady
     }
 
-    func postMouseButton(_ button: CGMouseButton, isDown: Bool, clickCount: Int = 1) -> Bool {
-        let mask = UInt32(1) << UInt32(button.rawValue)
-        if isDown {
-            virtualButtons |= mask
-        } else {
-            virtualButtons &= ~mask
-        }
-        if virtualHIDBridge.postPointing(x: 0, y: 0, buttons: virtualButtons) {
-            return true
-        }
-
-        let eventType: UInt32
-        switch (button, isDown) {
-        case (.left, true):
-            eventType = UInt32(NX_LMOUSEDOWN)
-        case (.left, false):
-            eventType = UInt32(NX_LMOUSEUP)
-        case (.right, true):
-            eventType = UInt32(NX_RMOUSEDOWN)
-        case (.right, false):
-            eventType = UInt32(NX_RMOUSEUP)
-        case (_, true):
-            eventType = UInt32(NX_OMOUSEDOWN)
-        case (_, false):
-            eventType = UInt32(NX_OMOUSEUP)
-        }
-
-        var eventData = NXEventData()
-        eventData.mouse.buttonNumber = UInt8(clamping: Int(button.rawValue))
-        eventData.mouse.click = Int32(clamping: clickCount)
-        eventData.mouse.pressure = isDown ? 255 : 0
-
-        return post(
-            eventType: eventType,
-            eventData: &eventData,
-            includeGlobalFlags: false,
-            eventFlags: 0
-        )
+    nonisolated func postRelativePointer(delta: SIMD2<Double>) -> Bool {
+        relativePointerOutput.postRelativePointer(delta: delta)
     }
 
-    func postScroll(vertical: Int32, horizontal: Int32) -> Bool {
-        if virtualHIDBridge.postPointing(
-            x: 0,
-            y: 0,
-            verticalWheel: Int8(clamping: vertical),
-            horizontalWheel: Int8(clamping: horizontal),
-            buttons: virtualButtons
-        ) {
-            return true
-        }
+    nonisolated func postMouseButton(
+        _ button: CGMouseButton,
+        isDown: Bool,
+        clickCount: Int = 1
+    ) -> Bool {
+        relativePointerOutput.postMouseButton(button, isDown: isDown, clickCount: clickCount)
+    }
 
-        var eventData = NXEventData()
-        eventData.scrollWheel.deltaAxis1 = Int16(clamping: Int(vertical))
-        eventData.scrollWheel.deltaAxis2 = Int16(clamping: Int(horizontal))
-        eventData.scrollWheel.fixedDeltaAxis1 = vertical.multipliedReportingOverflow(by: 65_536).partialValue
-        eventData.scrollWheel.fixedDeltaAxis2 = horizontal.multipliedReportingOverflow(by: 65_536).partialValue
-        eventData.scrollWheel.pointDeltaAxis1 = vertical
-        eventData.scrollWheel.pointDeltaAxis2 = horizontal
-
-        return post(
-            eventType: UInt32(NX_SCROLLWHEELMOVED),
-            eventData: &eventData,
-            includeGlobalFlags: false,
-            eventFlags: 0
-        )
+    nonisolated func postScroll(vertical: Int32, horizontal: Int32) -> Bool {
+        relativePointerOutput.postScroll(vertical: vertical, horizontal: horizontal)
     }
 
     func postShortcutDown(keyCode: UInt16, flags: CGEventFlags) -> Bool {
@@ -222,25 +322,6 @@ final class UniversalControlInputBridge {
             keyCode: 0,
             flags: []
         )
-    }
-
-    private func postVirtualPointer(dx: Int32, dy: Int32) -> Bool {
-        var remainingX = dx
-        var remainingY = dy
-        repeat {
-            let stepX = Int8(clamping: remainingX)
-            let stepY = Int8(clamping: remainingY)
-            guard virtualHIDBridge.postPointing(
-                x: stepX,
-                y: stepY,
-                buttons: virtualButtons
-            ) else {
-                return false
-            }
-            remainingX -= Int32(stepX)
-            remainingY -= Int32(stepY)
-        } while remainingX != 0 || remainingY != 0
-        return true
     }
 
     private func postVirtualShortcut(keyCode: UInt16, flags: CGEventFlags, isDown: Bool) -> Bool {
@@ -331,24 +412,11 @@ final class UniversalControlInputBridge {
         includeGlobalFlags: Bool,
         eventFlags: UInt32
     ) -> Bool {
-        guard let connection else {
-            return false
-        }
-
-        var options = UInt32(kIOHIDSetRelativeCursorPosition | kIOHIDPostHIDManagerEvent)
-        if includeGlobalFlags {
-            options |= UInt32(kIOHIDSetGlobalEventFlags)
-        }
-
-        let result = IOHIDPostEvent(
-            connection,
-            eventType,
-            IOGPoint(x: 0, y: 0),
-            &eventData,
-            UInt32(kNXEventDataVersion),
-            eventFlags,
-            options
+        legacyPoster.post(
+            eventType: eventType,
+            eventData: &eventData,
+            includeGlobalFlags: includeGlobalFlags,
+            eventFlags: eventFlags
         )
-        return result == KERN_SUCCESS
     }
 }

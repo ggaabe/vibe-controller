@@ -167,20 +167,19 @@ enum XboxUSBReportParser {
 /// Reads the physical Xbox controller's USB HID reports directly. macOS's
 /// higher-level GameController state can pause when Universal Control moves
 /// pointer ownership to another Mac; the source Mac's USB HID stream does not.
-@MainActor
-final class XboxUSBControllerReader {
-    var onConnectionChanged: ((Bool, String?) -> Void)?
-    var onInput: ((XboxUSBInputState) -> Void)?
+final class XboxUSBControllerReader: @unchecked Sendable {
+    var onConnectionChanged: (@Sendable (Bool, String?) -> Void)?
+    var onInput: (@Sendable (XboxUSBInputState) -> Void)?
 
-    nonisolated(unsafe) private let manager: IOHIDManager
+    private let queue: DispatchQueue
+    private let manager: IOHIDManager
     private var matchedDeviceIDs = Set<ObjectIdentifier>()
-    nonisolated(unsafe) private var reportBuffers: [ObjectIdentifier: UnsafeMutablePointer<UInt8>] = [:]
     private var latestState = XboxUSBInputState()
-    private var lastPublishedState: XboxUSBInputState?
     private var hasReceivedStandardInput = false
-    nonisolated(unsafe) private var publicationTimer: DispatchSourceTimer?
+    private var isStarted = false
 
-    init() {
+    init(queue: DispatchQueue) {
+        self.queue = queue
         manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
 
         let matching: [String: Any] = [
@@ -194,37 +193,36 @@ final class XboxUSBControllerReader {
         IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
             guard let context else { return }
             let reader = Unmanaged<XboxUSBControllerReader>.fromOpaque(context).takeUnretainedValue()
-            MainActor.assumeIsolated {
-                reader.deviceMatched(device)
-            }
+            reader.deviceMatched(device)
         }, context)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, device in
             guard let context else { return }
             let reader = Unmanaged<XboxUSBControllerReader>.fromOpaque(context).takeUnretainedValue()
-            MainActor.assumeIsolated {
-                reader.deviceRemoved(device)
-            }
+            reader.deviceRemoved(device)
+        }, context)
+        IOHIDManagerRegisterInputReportCallback(manager, { context, result, sender, _, reportID, report, reportLength in
+            guard result == kIOReturnSuccess, let context, let sender else { return }
+            let bytes = Array(UnsafeBufferPointer(start: report, count: reportLength))
+            let reader = Unmanaged<XboxUSBControllerReader>.fromOpaque(context).takeUnretainedValue()
+            let device = Unmanaged<IOHIDDevice>.fromOpaque(sender).takeUnretainedValue()
+            reader.receivedReport(from: device, reportID: Int(reportID), bytes: bytes)
         }, context)
 
-        IOHIDManagerScheduleWithRunLoop(
-            manager,
-            CFRunLoopGetMain(),
-            CFRunLoopMode.commonModes.rawValue
-        )
-        _ = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        IOHIDManagerSetDispatchQueue(manager, queue)
+    }
+
+    func start() {
+        queue.async { [weak self] in
+            guard let self, !self.isStarted else { return }
+            self.isStarted = true
+            _ = IOHIDManagerOpen(self.manager, IOOptionBits(kIOHIDOptionsTypeNone))
+            IOHIDManagerActivate(self.manager)
+        }
     }
 
     deinit {
-        IOHIDManagerUnscheduleFromRunLoop(
-            manager,
-            CFRunLoopGetMain(),
-            CFRunLoopMode.commonModes.rawValue
-        )
+        IOHIDManagerCancel(manager)
         IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        publicationTimer?.cancel()
-        for buffer in reportBuffers.values {
-            buffer.deallocate()
-        }
     }
 
     private func deviceMatched(_ device: IOHIDDevice) {
@@ -232,29 +230,6 @@ final class XboxUSBControllerReader {
 
         let deviceID = ObjectIdentifier(device)
         guard matchedDeviceIDs.insert(deviceID).inserted else { return }
-
-        let maximumReportSize = max(
-            64,
-            integerProperty(kIOHIDMaxInputReportSizeKey, device: device) ?? 0
-        )
-        let reportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: maximumReportSize)
-        reportBuffers[deviceID] = reportBuffer
-
-        let context = Unmanaged.passUnretained(self).toOpaque()
-        IOHIDDeviceRegisterInputReportCallback(
-            device,
-            reportBuffer,
-            maximumReportSize,
-            { context, result, _, _, reportID, report, reportLength in
-                guard result == kIOReturnSuccess, let context else { return }
-                let bytes = Array(UnsafeBufferPointer(start: report, count: reportLength))
-                let reader = Unmanaged<XboxUSBControllerReader>.fromOpaque(context).takeUnretainedValue()
-                MainActor.assumeIsolated {
-                    reader.receivedReport(reportID: Int(reportID), bytes: bytes)
-                }
-            },
-            context
-        )
 
         let name = stringProperty(kIOHIDProductKey, device: device) ?? "Xbox Controller"
         onConnectionChanged?(true, name)
@@ -264,18 +239,19 @@ final class XboxUSBControllerReader {
     private func deviceRemoved(_ device: IOHIDDevice) {
         let deviceID = ObjectIdentifier(device)
         guard matchedDeviceIDs.remove(deviceID) != nil else { return }
-        reportBuffers.removeValue(forKey: deviceID)?.deallocate()
         hasReceivedStandardInput = false
         latestState = XboxUSBInputState()
-        lastPublishedState = nil
-        publicationTimer?.cancel()
-        publicationTimer = nil
         if matchedDeviceIDs.isEmpty {
             onConnectionChanged?(false, nil)
         }
     }
 
-    private func receivedReport(reportID: Int, bytes: [UInt8]) {
+    private func receivedReport(
+        from device: IOHIDDevice,
+        reportID: Int,
+        bytes: [UInt8]
+    ) {
+        guard matchedDeviceIDs.contains(ObjectIdentifier(device)) else { return }
         guard let parsed = XboxUSBReportParser.parse(
             reportID: reportID,
             bytes: bytes,
@@ -290,12 +266,11 @@ final class XboxUSBControllerReader {
         }
         guard hasReceivedStandardInput else { return }
 
-        let buttonsChanged = parsed.pressedControls != latestState.pressedControls
-        latestState = parsed
-        if receivedFirstStandardReport || buttonsChanged {
-            publishLatestState()
+        guard receivedFirstStandardReport || inputChangedMeaningfully(from: latestState, to: parsed) else {
+            return
         }
-        startPublicationTimerIfNeeded()
+        latestState = parsed
+        onInput?(parsed)
     }
 
     private func readCurrentStandardInput(from device: IOHIDDevice) {
@@ -320,37 +295,15 @@ final class XboxUSBControllerReader {
             let bytes = Array(
                 UnsafeBufferPointer(start: IOHIDValueGetBytePtr(value), count: length)
             )
-            receivedReport(reportID: 0x20, bytes: bytes)
+            receivedReport(from: device, reportID: 0x20, bytes: bytes)
             return
         }
     }
 
-    private func startPublicationTimerIfNeeded() {
-        guard publicationTimer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(
-            deadline: .now() + .milliseconds(8),
-            repeating: .milliseconds(8),
-            leeway: .milliseconds(2)
-        )
-        timer.setEventHandler { [weak self] in
-            self?.publishLatestState()
-        }
-        publicationTimer = timer
-        timer.resume()
-    }
-
-    private func publishLatestState() {
-        guard inputChangedMeaningfully(from: lastPublishedState, to: latestState) else { return }
-        lastPublishedState = latestState
-        onInput?(latestState)
-    }
-
     private func inputChangedMeaningfully(
-        from previous: XboxUSBInputState?,
+        from previous: XboxUSBInputState,
         to current: XboxUSBInputState
     ) -> Bool {
-        guard let previous else { return true }
         guard previous.pressedControls == current.pressedControls else { return true }
 
         let tolerance = 0.0015
@@ -370,10 +323,6 @@ final class XboxUSBControllerReader {
             return value.boolValue
         }
         return false
-    }
-
-    private func integerProperty(_ key: String, device: IOHIDDevice) -> Int? {
-        (IOHIDDeviceGetProperty(device, key as CFString) as? NSNumber)?.intValue
     }
 
     private func stringProperty(_ key: String, device: IOHIDDevice) -> String? {

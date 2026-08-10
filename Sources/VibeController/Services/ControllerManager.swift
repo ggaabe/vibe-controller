@@ -1,5 +1,5 @@
 import Foundation
-import GameController
+@preconcurrency import GameController
 
 struct StickSnapshot: Equatable, Sendable {
     var x: Double = 0
@@ -39,97 +39,106 @@ struct ControllerSnapshot: Equatable, Sendable {
 
 @MainActor
 final class ControllerManager: ObservableObject {
+    typealias RealtimeHandler = @Sendable (ControllerSnapshot) -> Void
+
     @Published private(set) var snapshot: ControllerSnapshot = .disconnected
 
     var onSnapshot: ((ControllerSnapshot) -> Void)?
+    var onActionSnapshot: ((ControllerSnapshot) -> Void)?
+    var onRealtimeSnapshot: RealtimeHandler? {
+        didSet { inputRelay.setRealtimeHandler(onRealtimeSnapshot) }
+    }
 
+    private let inputQueue: DispatchQueue
+    private let inputRelay: ControllerInputRelay
+    private let xboxUSBReader: XboxUSBControllerReader
     private var connectedController: GCController?
     private var notificationTokens: [NSObjectProtocol] = []
     private var pollingTimer: DispatchSourceTimer?
-    private let xboxUSBReader: XboxUSBControllerReader
-    private var rawUSBState: XboxUSBInputState?
-    private var rawUSBControllerName: String?
 
     init() {
-        xboxUSBReader = XboxUSBControllerReader()
+        let inputQueue = DispatchQueue(
+            label: "com.vibe-controller.controller-input",
+            qos: .userInteractive,
+            autoreleaseFrequency: .workItem
+        )
+        let inputRelay = ControllerInputRelay(inputQueue: inputQueue)
+        self.inputQueue = inputQueue
+        self.inputRelay = inputRelay
+        xboxUSBReader = XboxUSBControllerReader(queue: inputQueue)
+
+        inputRelay.setTelemetryHandler { [weak self] snapshot in
+            self?.publishTelemetry(snapshot)
+        }
+        inputRelay.setActionHandler { [weak self] snapshot in
+            self?.onActionSnapshot?(snapshot)
+        }
+
         GCController.shouldMonitorBackgroundEvents = true
         registerNotifications()
-        xboxUSBReader.onConnectionChanged = { [weak self] isConnected, name in
-            guard let self else { return }
-            self.rawUSBControllerName = isConnected ? name : nil
+
+        xboxUSBReader.onConnectionChanged = { [weak self, weak inputRelay] isConnected, name in
+            inputRelay?.setRawUSBConnection(isConnected: isConnected, name: name)
             if !isConnected {
-                self.rawUSBState = nil
-                self.refreshConnectedController()
+                Task { @MainActor [weak self] in
+                    self?.refreshConnectedController()
+                }
             }
         }
-        xboxUSBReader.onInput = { [weak self] state in
-            self?.updateSnapshot(fromRawUSBState: state)
+        xboxUSBReader.onInput = { [weak inputRelay] state in
+            inputRelay?.receiveRawUSB(state)
         }
+        xboxUSBReader.start()
         refreshConnectedController()
     }
 
     func refreshConnectedController() {
-        let candidate = GCController.current ?? GCController.controllers().first(where: { $0.extendedGamepad != nil })
+        let candidate = GCController.current
+            ?? GCController.controllers().first(where: { $0.extendedGamepad != nil })
         guard candidate !== connectedController else {
             if let candidate {
-                updateSnapshot(from: candidate)
+                enqueueSnapshot(from: candidate, forceTelemetry: true)
             } else {
-                setDisconnected()
+                inputRelay.receiveGameController(.disconnected, forceTelemetry: true)
             }
             return
         }
 
         detachCurrentController()
         guard let candidate else {
-            setDisconnected()
+            inputRelay.receiveGameController(.disconnected, forceTelemetry: true)
             return
         }
-
         attach(controller: candidate)
     }
 
     private func registerNotifications() {
         let center = NotificationCenter.default
-        notificationTokens.append(
-            center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    self?.refreshConnectedController()
+        for name in [
+            Notification.Name.GCControllerDidConnect,
+            .GCControllerDidDisconnect,
+            .GCControllerDidBecomeCurrent,
+            .GCControllerDidStopBeingCurrent,
+        ] {
+            notificationTokens.append(
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.refreshConnectedController()
+                    }
                 }
-            }
-        )
-        notificationTokens.append(
-            center.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    self?.refreshConnectedController()
-                }
-            }
-        )
-        notificationTokens.append(
-            center.addObserver(forName: .GCControllerDidBecomeCurrent, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    self?.refreshConnectedController()
-                }
-            }
-        )
-        notificationTokens.append(
-            center.addObserver(forName: .GCControllerDidStopBeingCurrent, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    self?.refreshConnectedController()
-                }
-            }
-        )
+            )
+        }
     }
 
     private func attach(controller: GCController) {
         connectedController = controller
-        controller.handlerQueue = .main
-        controller.extendedGamepad?.valueChangedHandler = { [weak self] _, _ in
-            Task { @MainActor in
-                self?.updateSnapshot(from: controller)
-            }
-        }
+        Self.installInputHandler(
+            on: controller,
+            inputQueue: inputQueue,
+            inputRelay: inputRelay
+        )
         startPolling(controller: controller)
-        updateSnapshot(from: controller, forcePublish: true)
+        enqueueSnapshot(from: controller, forceTelemetry: true)
     }
 
     private func detachCurrentController() {
@@ -139,32 +148,76 @@ final class ControllerManager: ObservableObject {
         connectedController = nil
     }
 
-    private func setDisconnected() {
-        snapshot = .disconnected
+    private func startPolling(controller: GCController) {
+        pollingTimer?.cancel()
+        pollingTimer = Self.makePollingTimer(
+            for: controller,
+            inputQueue: inputQueue,
+            inputRelay: inputRelay
+        )
+    }
+
+    private func enqueueSnapshot(from controller: GCController, forceTelemetry: Bool) {
+        Self.enqueueSnapshot(
+            from: controller,
+            inputQueue: inputQueue,
+            inputRelay: inputRelay,
+            forceTelemetry: forceTelemetry
+        )
+    }
+
+    nonisolated private static func installInputHandler(
+        on controller: GCController,
+        inputQueue: DispatchQueue,
+        inputRelay: ControllerInputRelay
+    ) {
+        controller.handlerQueue = inputQueue
+        controller.extendedGamepad?.valueChangedHandler = { [weak controller] _, _ in
+            guard let controller,
+                  let snapshot = makeSnapshot(from: controller) else { return }
+            inputRelay.receiveGameController(snapshot)
+        }
+    }
+
+    nonisolated private static func makePollingTimer(
+        for controller: GCController,
+        inputQueue: DispatchQueue,
+        inputRelay: ControllerInputRelay
+    ) -> DispatchSourceTimer {
+        let timer = DispatchSource.makeTimerSource(queue: inputQueue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(16), leeway: .milliseconds(2))
+        timer.setEventHandler { [weak controller] in
+            guard let controller,
+                  let snapshot = makeSnapshot(from: controller) else { return }
+            inputRelay.receiveGameController(snapshot)
+        }
+        timer.resume()
+        return timer
+    }
+
+    nonisolated private static func enqueueSnapshot(
+        from controller: GCController,
+        inputQueue: DispatchQueue,
+        inputRelay: ControllerInputRelay,
+        forceTelemetry: Bool
+    ) {
+        inputQueue.async { [weak controller] in
+            guard let controller,
+                  let snapshot = makeSnapshot(from: controller) else {
+                inputRelay.receiveGameController(.disconnected, forceTelemetry: forceTelemetry)
+                return
+            }
+            inputRelay.receiveGameController(snapshot, forceTelemetry: forceTelemetry)
+        }
+    }
+
+    private func publishTelemetry(_ snapshot: ControllerSnapshot) {
+        self.snapshot = snapshot
         onSnapshot?(snapshot)
     }
 
-    private func startPolling(controller: GCController) {
-        pollingTimer?.cancel()
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(16), leeway: .milliseconds(4))
-        timer.setEventHandler { [weak self] in
-            guard let self, self.connectedController === controller else { return }
-            self.updateSnapshot(from: controller)
-        }
-        pollingTimer = timer
-        timer.resume()
-    }
-
-    private func updateSnapshot(from controller: GCController, forcePublish: Bool = false) {
-        if rawUSBState != nil {
-            return
-        }
-
-        guard let gamepad = controller.extendedGamepad else {
-            setDisconnected()
-            return
-        }
+    nonisolated private static func makeSnapshot(from controller: GCController) -> ControllerSnapshot? {
+        guard let gamepad = controller.extendedGamepad else { return nil }
 
         var pressed = Set<ControllerControlID>()
         var values: [ControllerControlID: Double] = [:]
@@ -172,9 +225,7 @@ final class ControllerManager: ObservableObject {
         func capture(_ control: ControllerControlID, input: GCControllerButtonInput?) {
             guard let input else { return }
             values[control] = Double(input.value)
-            if input.isPressed {
-                pressed.insert(control)
-            }
+            if input.isPressed { pressed.insert(control) }
         }
 
         capture(.buttonSouth, input: gamepad.buttonA)
@@ -210,12 +261,11 @@ final class ControllerManager: ObservableObject {
             y: Double(gamepad.rightThumbstick.yAxis.value),
             pressed: gamepad.rightThumbstickButton?.isPressed ?? false
         )
-
         values[.leftThumbstick] = min(1, hypot(leftStick.x, leftStick.y))
         values[.rightThumbstick] = min(1, hypot(rightStick.x, rightStick.y))
 
         let battery = controller.battery
-        var candidate = ControllerSnapshot(
+        return ControllerSnapshot(
             isConnected: true,
             controllerName: controller.vendorName,
             connectionSummary: controller.isAttachedToDevice ? "Attached" : nil,
@@ -225,36 +275,8 @@ final class ControllerManager: ObservableObject {
             analogValues: values,
             leftStick: leftStick,
             rightStick: rightStick,
-            lastUpdated: snapshot.lastUpdated
+            lastUpdated: Date()
         )
-        if !forcePublish, candidate == snapshot {
-            return
-        }
-        candidate.lastUpdated = Date()
-        snapshot = candidate
-        onSnapshot?(snapshot)
-    }
-
-    private func updateSnapshot(fromRawUSBState state: XboxUSBInputState) {
-        rawUSBState = state
-
-        let battery = connectedController?.battery
-        var candidate = ControllerSnapshot(
-            isConnected: true,
-            controllerName: rawUSBControllerName ?? connectedController?.vendorName ?? "Xbox Controller",
-            connectionSummary: "USB • Direct HID",
-            batteryLevel: battery?.batteryLevel,
-            batteryStateDescription: battery?.batteryState.vibeDescription,
-            pressedControls: state.pressedControls,
-            analogValues: state.analogValues,
-            leftStick: state.leftStick,
-            rightStick: state.rightStick,
-            lastUpdated: snapshot.lastUpdated
-        )
-        guard candidate != snapshot else { return }
-        candidate.lastUpdated = Date()
-        snapshot = candidate
-        onSnapshot?(snapshot)
     }
 }
 

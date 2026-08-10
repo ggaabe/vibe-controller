@@ -72,8 +72,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var accessibilityTrusted: Bool
     @Published private(set) var isRuntimeEnabled: Bool
     @Published private(set) var isAppFrontmost: Bool
-    @Published private(set) var controllerInputEvents: Int = 0
-    @Published private(set) var lastControllerActivityAt: Date?
+    private(set) var controllerInputEvents: Int = 0
+    private(set) var lastControllerActivityAt: Date?
     @Published private(set) var cursorDiagnostics: CursorDiagnostics = .initial
     @Published private(set) var lastActionStatus = "Idle"
     @Published private(set) var companionMode: CompanionMode
@@ -150,12 +150,14 @@ final class AppModel: ObservableObject {
             self?.objectWillChange.send()
             self?.advanceAutomaticSetup()
         }
-        cursorEngine.movementInterceptor = { [weak self] currentLocation, delta in
-            self?.interceptCursorMovement(currentLocation: currentLocation, delta: delta) ?? false
-        }
-
         controllerManager.onSnapshot = { [weak self] snapshot in
             self?.handleControllerSnapshot(snapshot)
+        }
+        controllerManager.onActionSnapshot = { [weak self] snapshot in
+            self?.handleControllerActions(snapshot)
+        }
+        controllerManager.onRealtimeSnapshot = { [weak cursorEngine] snapshot in
+            cursorEngine?.updateInput(snapshot: snapshot)
         }
         companionManager.onMessage = { [weak self] message in
             self?.handleCompanionMessage(message)
@@ -185,6 +187,7 @@ final class AppModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] state in
                 self?.companionConnectionState = state
+                self?.syncMovementInterceptor()
                 if case .connected = state {
                     return
                 }
@@ -217,6 +220,7 @@ final class AppModel: ObservableObject {
 
         persistDocument()
         companionManager.setMode(companionMode)
+        syncMovementInterceptor()
         syncCursorConfiguration()
         if controllerSnapshot.isConnected {
             actionEngine.process(snapshot: controllerSnapshot, profile: activeProfile)
@@ -660,12 +664,14 @@ final class AppModel: ObservableObject {
 
     private func handleControllerSnapshot(_ snapshot: ControllerSnapshot) {
         let didChange = snapshot.lastUpdated != controllerSnapshot.lastUpdated
-        controllerSnapshot = snapshot
         if didChange && snapshot.isConnected {
             controllerInputEvents += 1
             lastControllerActivityAt = snapshot.lastUpdated
         }
-        syncCursorConfiguration()
+        controllerSnapshot = snapshot
+    }
+
+    private func handleControllerActions(_ snapshot: ControllerSnapshot) {
         if snapshot.isConnected {
             actionEngine.process(snapshot: snapshot, profile: activeProfile)
         } else {
@@ -690,6 +696,18 @@ final class AppModel: ObservableObject {
     private func refreshCompanionState() {
         discoveredCompanionPeers = companionManager.discoveredPeers
         companionConnectionState = companionManager.connectionState
+        syncMovementInterceptor()
+    }
+
+    private func syncMovementInterceptor() {
+        guard companionMode == .controller,
+              case .connected = companionConnectionState else {
+            cursorEngine.movementInterceptor = nil
+            return
+        }
+        cursorEngine.movementInterceptor = { [weak self] currentLocation, delta in
+            self?.interceptCursorMovement(currentLocation: currentLocation, delta: delta) ?? false
+        }
     }
 
     private func interceptCursorMovement(currentLocation: CGPoint, delta: SIMD2<Double>) -> Bool {
@@ -1066,7 +1084,7 @@ final class AppModel: ObservableObject {
         actionEngine.accessibilityTrusted = accessibilityTrusted
         cursorEngine.suspendControllerMotion = false
         actionEngine.suspendActionExecution = false
-        cursorEngine.update(snapshot: controllerSnapshot, cursorConfiguration: activeProfile.cursor)
+        cursorEngine.updateConfiguration(activeProfile.cursor)
     }
 
     private func persistDocument() {

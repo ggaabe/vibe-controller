@@ -29,30 +29,188 @@ struct CursorDiagnostics: Sendable {
 }
 
 @MainActor
-final class CursorEngine {
+final class CursorEngine: @unchecked Sendable {
+    typealias DiagnosticsHandler = @MainActor @Sendable (CursorDiagnostics) -> Void
+    typealias MovementInterceptor = @MainActor @Sendable (CGPoint, SIMD2<Double>) -> Bool
+
+    let universalControlInputBridge: UniversalControlInputBridge
+    private nonisolated let motionLoop: CursorMotionLoop
+
+    var isEnabled = true {
+        didSet { motionLoop.setEnabled(isEnabled) }
+    }
+    var accessibilityTrusted = false {
+        didSet { motionLoop.setAccessibilityTrusted(accessibilityTrusted) }
+    }
+    var suspendControllerMotion = false {
+        didSet { motionLoop.setSuspended(suspendControllerMotion) }
+    }
+    var onDiagnostics: DiagnosticsHandler? {
+        didSet { motionLoop.setDiagnosticsHandler(onDiagnostics) }
+    }
+    var movementInterceptor: MovementInterceptor? {
+        didSet { motionLoop.setMovementInterceptor(movementInterceptor) }
+    }
+
+    var isDraggingLeftMouse: Bool {
+        get { motionLoop.isDraggingLeftMouse }
+    }
+
+    init(universalControlInputBridge: UniversalControlInputBridge = UniversalControlInputBridge()) {
+        self.universalControlInputBridge = universalControlInputBridge
+        motionLoop = CursorMotionLoop(inputBridge: universalControlInputBridge)
+    }
+
+    deinit {
+        motionLoop.stop()
+    }
+
+    /// Fast controller samples enter directly from the input queue and never
+    /// wait for SwiftUI or the main run loop.
+    nonisolated func updateInput(snapshot: ControllerSnapshot) {
+        motionLoop.updateInput(snapshot: snapshot)
+    }
+
+    func updateConfiguration(_ cursorConfiguration: CursorConfiguration) {
+        motionLoop.updateConfiguration(cursorConfiguration)
+    }
+
+    func beginLeftDrag() {
+        motionLoop.beginLeftDrag()
+    }
+
+    func endLeftDrag() {
+        motionLoop.endLeftDrag()
+    }
+
+    func releaseTransientState() {
+        motionLoop.releaseTransientState()
+    }
+
+    func currentCursorPosition() -> CGPoint {
+        motionLoop.currentCursorPosition()
+    }
+
+    func positionCursor(at point: CGPoint) {
+        motionLoop.positionCursor(at: point)
+    }
+
+    func applyExternalDelta(_ delta: SIMD2<Double>) {
+        motionLoop.applyExternalDelta(delta)
+    }
+
+    func performDiagnosticNudge() -> String {
+        motionLoop.performDiagnosticNudge()
+    }
+}
+
+private final class MainActorMovementAccumulator: @unchecked Sendable {
+    typealias Handler = @MainActor @Sendable (CGPoint, SIMD2<Double>) -> Bool
+    typealias Fallback = @Sendable (SIMD2<Double>) -> Void
+
+    private let lock = NSLock()
+    private var handler: Handler?
+    private var pendingLocation: CGPoint?
+    private var pendingDelta = SIMD2<Double>.zero
+    private var fallback: Fallback?
+    private var deliveryScheduled = false
+
+    @MainActor
+    func setHandler(_ handler: Handler?) {
+        lock.lock()
+        self.handler = handler
+        lock.unlock()
+    }
+
+    var hasHandler: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return handler != nil
+    }
+
+    func submit(location: CGPoint, delta: SIMD2<Double>, fallback: @escaping Fallback) {
+        lock.lock()
+        if pendingLocation == nil {
+            pendingLocation = location
+        }
+        pendingDelta += delta
+        self.fallback = fallback
+        guard !deliveryScheduled else {
+            lock.unlock()
+            return
+        }
+        deliveryScheduled = true
+        lock.unlock()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            self.lock.lock()
+            let handler = self.handler
+            let location = self.pendingLocation
+            let delta = self.pendingDelta
+            let fallback = self.fallback
+            self.pendingLocation = nil
+            self.pendingDelta = .zero
+            self.fallback = nil
+            self.deliveryScheduled = false
+            self.lock.unlock()
+
+            guard let location else { return }
+            let handled = MainActor.assumeIsolated {
+                handler?(location, delta) ?? false
+            }
+            if !handled {
+                fallback?(delta)
+            }
+        }
+    }
+}
+
+private final class CursorMotionLoop: @unchecked Sendable {
+    private static let outputIntervalNanoseconds = 8_333_333
+    private static let diagnosticsInterval = 1.0 / 15.0
+
+    private let queue = DispatchQueue(
+        label: "com.vibe-controller.cursor-motion",
+        qos: .userInteractive,
+        autoreleaseFrequency: .workItem
+    )
+    private let queueKey = DispatchSpecificKey<UInt8>()
+    private let inputBridge: UniversalControlInputBridge
+    private let eventSource = CGEventSource(stateID: .combinedSessionState)
+    private let diagnosticsDelivery = MainActorLatestValue<CursorDiagnostics>()
+    private let movementAccumulator = MainActorMovementAccumulator()
+
     private var timer: DispatchSourceTimer?
     private var diagnosticTimer: DispatchSourceTimer?
-    private var lastTickTime: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
+    private var diagnosticReportsRemaining = 0
+    private var lastTickTime = ProcessInfo.processInfo.systemUptime
+    private var lastDiagnosticsTime = 0.0
+    private var lastDiagnosticsState: CursorActivityState?
+    private var lastDiagnosticsMessage: String?
     private var leftStick = StickSnapshot()
     private var rightStick = StickSnapshot()
     private var cursorConfiguration = ControllerProfile.gabesDefaults.cursor
     private var smoothedVelocity = SIMD2<Double>.zero
-    private let eventSource = CGEventSource(stateID: .combinedSessionState)
-    let universalControlInputBridge: UniversalControlInputBridge
+    private var primaryFlickBoost = 1.0
+    private var previousPrimaryStick = SIMD2<Double>.zero
+    private var previousPrimaryStickTime = 0.0
+    private var hasPrimaryStickHistory = false
     private var lastKnownCursorPosition: CGPoint?
-    private var lastSyntheticCursorUpdateTime: CFAbsoluteTime = 0
+    private var lastSyntheticCursorUpdateTime = 0.0
+    private var enabled = true
+    private var accessibilityTrusted = false
+    private var suspended = false
+    private var draggingLeftMouse = false
 
-    private(set) var isDraggingLeftMouse = false
-    var isEnabled = true
-    var accessibilityTrusted = false
-    var suspendControllerMotion = false
-    var onDiagnostics: ((CursorDiagnostics) -> Void)?
-    var movementInterceptor: ((CGPoint, SIMD2<Double>) -> Bool)?
-
-    init(universalControlInputBridge: UniversalControlInputBridge = UniversalControlInputBridge()) {
-        self.universalControlInputBridge = universalControlInputBridge
+    init(inputBridge: UniversalControlInputBridge) {
+        self.inputBridge = inputBridge
         lastKnownCursorPosition = CGEvent(source: nil)?.location ?? .zero
-        startTimer()
+        queue.setSpecific(key: queueKey, value: 1)
+        queue.async { [weak self] in
+            self?.startTimer()
+        }
     }
 
     deinit {
@@ -60,62 +218,193 @@ final class CursorEngine {
         diagnosticTimer?.cancel()
     }
 
-    func update(snapshot: ControllerSnapshot, cursorConfiguration: CursorConfiguration) {
-        self.leftStick = snapshot.leftStick
-        self.rightStick = snapshot.rightStick
-        self.cursorConfiguration = cursorConfiguration
+    @MainActor
+    func setDiagnosticsHandler(_ handler: CursorEngine.DiagnosticsHandler?) {
+        diagnosticsDelivery.setHandler(handler)
+    }
+
+    @MainActor
+    func setMovementInterceptor(_ interceptor: CursorEngine.MovementInterceptor?) {
+        movementAccumulator.setHandler(interceptor)
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.enabled = enabled
+            self.lastTickTime = ProcessInfo.processInfo.systemUptime
+            if !enabled {
+                self.smoothedVelocity = .zero
+                self.resetFlickState()
+                self.endLeftDragOnQueue()
+            }
+        }
+    }
+
+    func setAccessibilityTrusted(_ trusted: Bool) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.accessibilityTrusted = trusted
+            self.lastTickTime = ProcessInfo.processInfo.systemUptime
+            if !trusted {
+                self.smoothedVelocity = .zero
+                self.resetFlickState()
+                self.endLeftDragOnQueue()
+            }
+        }
+    }
+
+    func setSuspended(_ suspended: Bool) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.suspended = suspended
+            self.lastTickTime = ProcessInfo.processInfo.systemUptime
+            if suspended {
+                self.smoothedVelocity = .zero
+                self.resetFlickState()
+            }
+        }
+    }
+
+    func updateInput(snapshot: ControllerSnapshot) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.leftStick = snapshot.leftStick
+            self.rightStick = snapshot.rightStick
+            self.recordPrimaryStickChange(at: ProcessInfo.processInfo.systemUptime)
+        }
+    }
+
+    func updateConfiguration(_ configuration: CursorConfiguration) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.cursorConfiguration = configuration
+            self.resetFlickState()
+        }
+    }
+
+    var isDraggingLeftMouse: Bool {
+        syncOnQueue { draggingLeftMouse }
     }
 
     func beginLeftDrag() {
-        guard accessibilityTrusted, !isDraggingLeftMouse else { return }
-        if universalControlInputBridge.postMouseButton(.left, isDown: true) {
-            isDraggingLeftMouse = true
-            return
+        syncOnQueue {
+            guard accessibilityTrusted, !draggingLeftMouse else { return }
+            if inputBridge.postMouseButton(.left, isDown: true) {
+                draggingLeftMouse = true
+                return
+            }
+            let location = currentCursorPositionOnQueue()
+            postMouseEvent(type: .leftMouseDown, location: location, button: .left)
+            draggingLeftMouse = true
         }
-        let location = currentCursorPosition()
-        postMouseEvent(type: .leftMouseDown, location: location, button: .left)
-        isDraggingLeftMouse = true
     }
 
     func endLeftDrag() {
-        guard isDraggingLeftMouse else { return }
-        if universalControlInputBridge.postMouseButton(.left, isDown: false) {
-            isDraggingLeftMouse = false
-            return
+        syncOnQueue {
+            endLeftDragOnQueue()
         }
-        let location = currentCursorPosition()
-        postMouseEvent(type: .leftMouseUp, location: location, button: .left)
-        isDraggingLeftMouse = false
     }
 
     func releaseTransientState() {
-        endLeftDrag()
-        smoothedVelocity = .zero
+        syncOnQueue {
+            endLeftDragOnQueue()
+            smoothedVelocity = .zero
+            leftStick = StickSnapshot()
+            rightStick = StickSnapshot()
+            resetFlickState()
+            lastTickTime = ProcessInfo.processInfo.systemUptime
+        }
     }
 
     func currentCursorPosition() -> CGPoint {
-        synchronizeCursorPositionFromSystemIfNeeded()
-        return lastKnownCursorPosition ?? .zero
+        syncOnQueue {
+            currentCursorPositionOnQueue()
+        }
     }
 
     func positionCursor(at point: CGPoint) {
-        guard isEnabled, accessibilityTrusted else { return }
-        let target = clampedToVisibleScreens(point)
-        recordSyntheticCursorPosition(target)
-        let type: CGEventType = isDraggingLeftMouse ? .leftMouseDragged : .mouseMoved
-        let warpResult = CGWarpMouseCursorPosition(target)
-        postMouseEvent(type: type, location: target, button: .left)
-        publishDiagnostics(
-            state: .moving,
-            velocity: .zero,
-            location: target,
-            message: warpResult == .success ? "Positioning cursor for companion handoff." : "Cursor warp failed: \(warpResult.rawValue)"
-        )
+        syncOnQueue {
+            guard enabled, accessibilityTrusted else { return }
+            let target = clampedToVisibleScreens(point)
+            recordSyntheticCursorPosition(target)
+            let type: CGEventType = draggingLeftMouse ? .leftMouseDragged : .mouseMoved
+            let warpResult = CGWarpMouseCursorPosition(target)
+            postMouseEvent(type: type, location: target, button: .left)
+            publishDiagnostics(
+                state: .moving,
+                velocity: .zero,
+                location: target,
+                message: warpResult == .success
+                    ? "Positioning cursor for companion handoff."
+                    : "Cursor warp failed: \(warpResult.rawValue)"
+            )
+        }
+    }
+
+    func applyExternalDelta(_ delta: SIMD2<Double>) {
+        queue.async { [weak self] in
+            guard let self, self.enabled, self.accessibilityTrusted else { return }
+            self.moveCursor(by: delta, allowInterception: false)
+        }
+    }
+
+    func performDiagnosticNudge() -> String {
+        syncOnQueue {
+            guard enabled else {
+                publishDiagnostics(
+                    state: .disabled,
+                    velocity: .zero,
+                    location: nil,
+                    message: "Runtime disabled."
+                )
+                return "Runtime is disabled."
+            }
+            guard accessibilityTrusted else {
+                publishDiagnostics(
+                    state: .needsAccessibility,
+                    velocity: .zero,
+                    location: nil,
+                    message: "Grant Accessibility to move the cursor."
+                )
+                return "Accessibility permission is not granted."
+            }
+
+            diagnosticTimer?.cancel()
+            diagnosticReportsRemaining = 720
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(
+                deadline: .now(),
+                repeating: .nanoseconds(Self.outputIntervalNanoseconds),
+                leeway: .microseconds(500)
+            )
+            timer.setEventHandler { [weak self] in
+                self?.diagnosticTick()
+            }
+            diagnosticTimer = timer
+            timer.resume()
+            return "Running a six-second cross-Mac cursor sweep."
+        }
+    }
+
+    func stop() {
+        syncOnQueue {
+            timer?.cancel()
+            timer = nil
+            diagnosticTimer?.cancel()
+            diagnosticTimer = nil
+            endLeftDragOnQueue()
+        }
     }
 
     private func startTimer() {
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(8), leeway: .milliseconds(2))
+        lastTickTime = ProcessInfo.processInfo.systemUptime
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(
+            deadline: .now(),
+            repeating: .nanoseconds(Self.outputIntervalNanoseconds),
+            leeway: .microseconds(500)
+        )
         timer.setEventHandler { [weak self] in
             self?.tick()
         }
@@ -124,27 +413,29 @@ final class CursorEngine {
     }
 
     private func tick() {
-        let now = CFAbsoluteTimeGetCurrent()
-        let deltaTime = max(1.0 / 240.0, min(now - lastTickTime, 1.0 / 30.0))
+        let now = ProcessInfo.processInfo.systemUptime
+        let deltaTime = CursorMath.elapsedDuration(from: lastTickTime, to: now)
         lastTickTime = now
-        synchronizeCursorPositionFromSystemIfNeeded(now: now)
+        guard deltaTime > 0 else { return }
 
-        guard isEnabled, accessibilityTrusted else {
+        guard enabled, accessibilityTrusted else {
             smoothedVelocity = .zero
+            resetFlickState()
             if !accessibilityTrusted {
-                endLeftDrag()
+                endLeftDragOnQueue()
             }
             publishDiagnostics(
-                state: isEnabled ? .needsAccessibility : .disabled,
+                state: enabled ? .needsAccessibility : .disabled,
                 velocity: .zero,
                 location: nil,
-                message: isEnabled ? "Grant Accessibility to move the cursor." : "Runtime disabled."
+                message: enabled ? "Grant Accessibility to move the cursor." : "Runtime disabled."
             )
             return
         }
 
-        guard !suspendControllerMotion else {
+        guard !suspended else {
             smoothedVelocity = .zero
+            resetFlickState()
             publishDiagnostics(
                 state: .idle,
                 velocity: .zero,
@@ -154,12 +445,25 @@ final class CursorEngine {
             return
         }
 
-        let primaryVelocity = velocity(for: cursorConfiguration.primaryStick, speed: cursorConfiguration.primarySpeed)
-        let precisionVelocity = velocity(for: cursorConfiguration.precisionStick, speed: cursorConfiguration.precisionSpeed)
+        primaryFlickBoost = CursorMath.decayedFlickBoost(
+            primaryFlickBoost,
+            elapsedTime: deltaTime
+        )
+        let primaryVelocity = velocity(
+            for: cursorConfiguration.primaryStick,
+            speed: cursorConfiguration.primarySpeed,
+            speedMultiplier: primaryFlickBoost
+        )
+        let precisionVelocity = velocity(
+            for: cursorConfiguration.precisionStick,
+            speed: cursorConfiguration.precisionSpeed
+        )
 
         var combinedVelocity = primaryVelocity + precisionVelocity
         let activeMaxSpeed = max(
-            cursorConfiguration.primaryStick == .off ? 0 : cursorConfiguration.primarySpeed,
+            cursorConfiguration.primaryStick == .off
+                ? 0
+                : cursorConfiguration.primarySpeed * primaryFlickBoost,
             cursorConfiguration.precisionStick == .off ? 0 : cursorConfiguration.precisionSpeed
         )
         if activeMaxSpeed > 0 {
@@ -168,11 +472,12 @@ final class CursorEngine {
         smoothedVelocity = CursorMath.blend(
             current: smoothedVelocity,
             target: combinedVelocity,
-            smoothing: cursorConfiguration.smoothing
+            smoothing: cursorConfiguration.smoothing,
+            elapsedTime: deltaTime
         )
 
-        let frameDelta = smoothedVelocity * deltaTime
-        guard simd_length(frameDelta) >= 0.05 else {
+        guard simd_length(smoothedVelocity) >= 0.01 else {
+            smoothedVelocity = .zero
             publishDiagnostics(
                 state: .idle,
                 velocity: smoothedVelocity,
@@ -182,10 +487,15 @@ final class CursorEngine {
             return
         }
 
-        moveCursor(by: frameDelta)
+        let frameDelta = smoothedVelocity * deltaTime
+        moveCursor(by: frameDelta, allowInterception: true)
     }
 
-    private func velocity(for assignment: StickAssignment, speed: Double) -> SIMD2<Double> {
+    private func velocity(
+        for assignment: StickAssignment,
+        speed: Double,
+        speedMultiplier: Double = 1
+    ) -> SIMD2<Double> {
         guard let stickSide = assignment.stickSide else { return .zero }
         let stick = stickSide == .left ? leftStick : rightStick
 
@@ -197,74 +507,128 @@ final class CursorEngine {
         )
         guard adjusted != .zero else { return .zero }
 
-        let invertX = stickSide == .left ? cursorConfiguration.invertPrimaryX : cursorConfiguration.invertPrecisionX
-        let invertY = stickSide == .left ? cursorConfiguration.invertPrimaryY : cursorConfiguration.invertPrecisionY
+        let invertX = stickSide == .left
+            ? cursorConfiguration.invertPrimaryX
+            : cursorConfiguration.invertPrecisionX
+        let invertY = stickSide == .left
+            ? cursorConfiguration.invertPrimaryY
+            : cursorConfiguration.invertPrecisionY
 
-        // Game Controller stick Y and Quartz cursor Y do not share the same
-        // "up" direction, so normalize to desktop-style cursor motion first.
         var direction = SIMD2<Double>(adjusted.x, -adjusted.y)
-        if invertX {
-            direction.x *= -1
-        }
-        if invertY {
-            direction.y *= -1
-        }
-
+        if invertX { direction.x *= -1 }
+        if invertY { direction.y *= -1 }
         direction.x *= cursorConfiguration.horizontalSpeedMultiplier
         direction.y *= cursorConfiguration.verticalSpeedMultiplier
 
-        var velocity = direction * speed
+        var velocity = direction * speed * speedMultiplier
         if cursorConfiguration.accelerationEnabled {
             let magnitude = simd_length(adjusted)
             velocity *= (1.0 + (magnitude * magnitude * 0.35))
         }
-
         return velocity
     }
 
-    private func moveCursor(by delta: SIMD2<Double>) {
-        let currentPosition = currentCursorPosition()
-        if movementInterceptor?(currentPosition, delta) == true {
+    private func recordPrimaryStickChange(at currentTime: Double) {
+        guard let stickSide = cursorConfiguration.primaryStick.stickSide else {
+            resetFlickState()
+            return
+        }
+
+        let stick = stickSide == .left ? leftStick : rightStick
+        let current = SIMD2<Double>(stick.x, stick.y)
+        guard hasPrimaryStickHistory else {
+            previousPrimaryStick = current
+            previousPrimaryStickTime = currentTime
+            hasPrimaryStickHistory = true
+            return
+        }
+        guard current != previousPrimaryStick else { return }
+
+        if simd_length(current) <= cursorConfiguration.deadZone {
+            primaryFlickBoost = 1
+        } else {
+            let detectedBoost = CursorMath.flickBoostMultiplier(
+                previous: previousPrimaryStick,
+                current: current,
+                elapsedTime: currentTime - previousPrimaryStickTime
+            )
+            primaryFlickBoost = max(primaryFlickBoost, detectedBoost)
+        }
+        previousPrimaryStick = current
+        previousPrimaryStickTime = currentTime
+    }
+
+    private func resetFlickState() {
+        primaryFlickBoost = 1
+        previousPrimaryStick = .zero
+        previousPrimaryStickTime = 0
+        hasPrimaryStickHistory = false
+    }
+
+    private func moveCursor(by delta: SIMD2<Double>, allowInterception: Bool) {
+        if allowInterception, movementAccumulator.hasHandler {
+            let currentPosition = currentCursorPositionOnQueue()
+            movementAccumulator.submit(
+                location: currentPosition,
+                delta: delta,
+                fallback: { [weak self] accumulatedDelta in
+                    self?.queue.async { [weak self] in
+                        self?.moveCursor(by: accumulatedDelta, allowInterception: false)
+                    }
+                }
+            )
             publishDiagnostics(
                 state: .moving,
                 velocity: smoothedVelocity,
                 location: currentPosition,
-                message: "Forwarding cursor movement to companion."
+                message: "Routing cursor movement through the companion path."
             )
             return
         }
 
-        if universalControlInputBridge.postRelativePointer(delta: delta) {
-            let postedLocation = CGEvent(source: nil)?.location ?? currentPosition
-            lastKnownCursorPosition = postedLocation
+        if inputBridge.postRelativePointer(delta: delta) {
             publishDiagnostics(
                 state: .moving,
                 velocity: smoothedVelocity,
-                location: postedLocation,
-                message: universalControlInputBridge.isVirtualHardwareReady
+                location: nil,
+                message: inputBridge.isVirtualPointingReady
                     ? "Posting virtual hardware movement through Universal Control."
                     : "Posting legacy relative movement on this Mac."
             )
             return
         }
 
+        let currentPosition = currentCursorPositionOnQueue()
         let unclamped = CGPoint(x: currentPosition.x + delta.x, y: currentPosition.y + delta.y)
         let target = clampedToVisibleScreens(unclamped)
         recordSyntheticCursorPosition(target)
-        let type: CGEventType = isDraggingLeftMouse ? .leftMouseDragged : .mouseMoved
+        let type: CGEventType = draggingLeftMouse ? .leftMouseDragged : .mouseMoved
         let warpResult = CGWarpMouseCursorPosition(target)
         postMouseEvent(type: type, location: target, button: .left)
         publishDiagnostics(
             state: .moving,
             velocity: smoothedVelocity,
             location: target,
-            message: warpResult == .success ? "Posting cursor movement." : "Cursor warp failed: \(warpResult.rawValue)"
+            message: warpResult == .success
+                ? "Posting cursor movement."
+                : "Cursor warp failed: \(warpResult.rawValue)"
         )
     }
 
-    func applyExternalDelta(_ delta: SIMD2<Double>) {
-        guard isEnabled, accessibilityTrusted else { return }
-        moveCursor(by: delta)
+    private func endLeftDragOnQueue() {
+        guard draggingLeftMouse else { return }
+        if inputBridge.postMouseButton(.left, isDown: false) {
+            draggingLeftMouse = false
+            return
+        }
+        let location = currentCursorPositionOnQueue()
+        postMouseEvent(type: .leftMouseUp, location: location, button: .left)
+        draggingLeftMouse = false
+    }
+
+    private func currentCursorPositionOnQueue() -> CGPoint {
+        synchronizeCursorPositionFromSystemIfNeeded()
+        return lastKnownCursorPosition ?? .zero
     }
 
     private func clampedToVisibleScreens(_ point: CGPoint) -> CGPoint {
@@ -275,7 +639,7 @@ final class CursorEngine {
         let union = displays.reduce(into: CGRect.null) { result, displayID in
             result = result.union(CGDisplayBounds(displayID))
         }
-        guard union.isNull == false else { return point }
+        guard !union.isNull else { return point }
         return CGPoint(
             x: min(max(point.x, union.minX), union.maxX - 1),
             y: min(max(point.y, union.minY), union.maxY - 1)
@@ -288,69 +652,38 @@ final class CursorEngine {
             mouseType: type,
             mouseCursorPosition: location,
             mouseButton: button
-        ) else {
-            return
-        }
+        ) else { return }
         event.post(tap: .cghidEventTap)
     }
 
     private func recordSyntheticCursorPosition(_ point: CGPoint) {
         lastKnownCursorPosition = point
-        lastSyntheticCursorUpdateTime = CFAbsoluteTimeGetCurrent()
+        lastSyntheticCursorUpdateTime = ProcessInfo.processInfo.systemUptime
     }
 
-    private func synchronizeCursorPositionFromSystemIfNeeded(now: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()) {
+    private func synchronizeCursorPositionFromSystemIfNeeded() {
         guard let systemLocation = CGEvent(source: nil)?.location else { return }
+        let now = ProcessInfo.processInfo.systemUptime
         let recentlyMovedSynthhetically = (now - lastSyntheticCursorUpdateTime) < 0.15
-        if lastKnownCursorPosition == nil || recentlyMovedSynthhetically == false {
+        if lastKnownCursorPosition == nil || !recentlyMovedSynthhetically {
             lastKnownCursorPosition = systemLocation
         }
     }
 
-    func performDiagnosticNudge() -> String {
-        guard isEnabled else {
+    private func diagnosticTick() {
+        guard diagnosticReportsRemaining > 0 else {
+            diagnosticTimer?.cancel()
+            diagnosticTimer = nil
             publishDiagnostics(
-                state: .disabled,
+                state: .idle,
                 velocity: .zero,
                 location: nil,
-                message: "Runtime disabled."
+                message: "Completed the six-second cross-Mac cursor sweep."
             )
-            return "Runtime is disabled."
+            return
         }
-
-        guard accessibilityTrusted else {
-            publishDiagnostics(
-                state: .needsAccessibility,
-                velocity: .zero,
-                location: nil,
-                message: "Grant Accessibility to move the cursor."
-            )
-            return "Accessibility permission is not granted."
-        }
-
-        diagnosticTimer?.cancel()
-        var remainingReports = 750
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(8), leeway: .milliseconds(1))
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            guard remainingReports > 0 else {
-                self.diagnosticTimer?.cancel()
-                self.diagnosticTimer = nil
-                self.publishDiagnostics(
-                    state: .idle,
-                    velocity: .zero,
-                    location: nil,
-                    message: "Completed the six-second cross-Mac cursor sweep."
-                )
-                return
-            }
-            self.moveCursor(by: SIMD2<Double>(3, 0))
-            remainingReports -= 1
-        }
-        diagnosticTimer = timer
-        timer.resume()
-        return "Running a six-second cross-Mac cursor sweep."
+        moveCursor(by: SIMD2<Double>(3, 0), allowInterception: true)
+        diagnosticReportsRemaining -= 1
     }
 
     private func publishDiagnostics(
@@ -359,7 +692,17 @@ final class CursorEngine {
         location: CGPoint?,
         message: String
     ) {
-        onDiagnostics?(
+        let now = ProcessInfo.processInfo.systemUptime
+        guard state != lastDiagnosticsState || message != lastDiagnosticsMessage else {
+            return
+        }
+        guard lastDiagnosticsTime == 0 || now - lastDiagnosticsTime >= Self.diagnosticsInterval else {
+            return
+        }
+        lastDiagnosticsTime = now
+        lastDiagnosticsState = state
+        lastDiagnosticsMessage = message
+        diagnosticsDelivery.submit(
             CursorDiagnostics(
                 state: state,
                 velocityX: velocity.x,
@@ -369,5 +712,12 @@ final class CursorEngine {
                 message: message
             )
         )
+    }
+
+    private func syncOnQueue<T>(_ operation: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return operation()
+        }
+        return queue.sync(execute: operation)
     }
 }

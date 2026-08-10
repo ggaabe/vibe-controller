@@ -1,5 +1,124 @@
 import Foundation
 
+/// Serializes the fixed-width command stream written to the privileged helper.
+/// Pointer reports come from the real-time motion queue while buttons and keys
+/// can originate on the main actor, so writes must never interleave.
+final class VirtualHIDCommandTransport: @unchecked Sendable {
+    enum CommandKind: UInt8 {
+        case pointing = 1
+        case keyboard = 2
+        case function = 3
+    }
+
+    private let lock = NSLock()
+    private var fileHandle: FileHandle?
+    private var pointingReady = false
+    private var keyboardReady = false
+    private var failureHandler: (@Sendable () -> Void)?
+
+    func setFailureHandler(_ handler: (@Sendable () -> Void)?) {
+        lock.lock()
+        failureHandler = handler
+        lock.unlock()
+    }
+
+    func connect(fileHandle: FileHandle) {
+        lock.lock()
+        self.fileHandle = fileHandle
+        pointingReady = false
+        keyboardReady = false
+        lock.unlock()
+    }
+
+    func updateReadiness(pointing: Bool, keyboard: Bool) {
+        lock.lock()
+        pointingReady = pointing
+        keyboardReady = keyboard
+        lock.unlock()
+    }
+
+    func disconnect() {
+        lock.lock()
+        fileHandle = nil
+        pointingReady = false
+        keyboardReady = false
+        lock.unlock()
+    }
+
+    var isPointingReady: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return pointingReady && fileHandle != nil
+    }
+
+    func postPointing(
+        x: Int8,
+        y: Int8,
+        verticalWheel: Int8 = 0,
+        horizontalWheel: Int8 = 0,
+        buttons: UInt32
+    ) -> Bool {
+        sendCommand(
+            kind: .pointing,
+            x: x,
+            y: y,
+            verticalWheel: verticalWheel,
+            horizontalWheel: horizontalWheel,
+            buttons: buttons
+        )
+    }
+
+    func postKeyboard(modifiers: UInt8, usage: UInt16) -> Bool {
+        sendCommand(kind: .keyboard, modifiers: modifiers, usage: usage)
+    }
+
+    func postFunction(usage: UInt16) -> Bool {
+        sendCommand(kind: .function, usage: usage)
+    }
+
+    private func sendCommand(
+        kind: CommandKind,
+        x: Int8 = 0,
+        y: Int8 = 0,
+        verticalWheel: Int8 = 0,
+        horizontalWheel: Int8 = 0,
+        modifiers: UInt8 = 0,
+        usage: UInt16 = 0,
+        buttons: UInt32 = 0
+    ) -> Bool {
+        lock.lock()
+        let isReady = kind == .pointing ? pointingReady : keyboardReady
+        guard isReady, let fileHandle else {
+            lock.unlock()
+            return false
+        }
+
+        var command = Data(repeating: 0, count: 16)
+        command[0] = kind.rawValue
+        command[1] = UInt8(bitPattern: x)
+        command[2] = UInt8(bitPattern: y)
+        command[3] = UInt8(bitPattern: verticalWheel)
+        command[4] = UInt8(bitPattern: horizontalWheel)
+        command[5] = modifiers
+        command.replaceSubrange(6..<8, with: withUnsafeBytes(of: usage.littleEndian, Array.init))
+        command.replaceSubrange(8..<12, with: withUnsafeBytes(of: buttons.littleEndian, Array.init))
+
+        do {
+            try fileHandle.write(contentsOf: command)
+            lock.unlock()
+            return true
+        } catch {
+            self.fileHandle = nil
+            pointingReady = false
+            keyboardReady = false
+            let failureHandler = self.failureHandler
+            lock.unlock()
+            failureHandler?()
+            return false
+        }
+    }
+}
+
 /// A narrow client for the installed, root-owned virtual-HID bridge. The
 /// privileged process is installed separately and accepts commands only from a
 /// valid Vibe Controller app signed by the same development team.
@@ -7,12 +126,7 @@ import Foundation
 final class PrivilegedVirtualHIDBridge {
     static let installedHelperPath = "/Library/PrivilegedHelperTools/com.vibe-controller.virtual-hid-bridge"
 
-    private enum CommandKind: UInt8 {
-        case pointing = 1
-        case keyboard = 2
-        case function = 3
-        case quit = 4
-    }
+    nonisolated let commandTransport = VirtualHIDCommandTransport()
 
     private var process: Process?
     private var inputPipe: Pipe?
@@ -30,10 +144,16 @@ final class PrivilegedVirtualHIDBridge {
     var onStatusChange: (() -> Void)?
 
     init() {
+        commandTransport.setFailureHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.handleTransportFailure()
+            }
+        }
         startIfInstalled()
     }
 
     deinit {
+        commandTransport.disconnect()
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         if process?.isRunning == true {
             process?.terminate()
@@ -83,6 +203,7 @@ final class PrivilegedVirtualHIDBridge {
             self.process = process
             self.inputPipe = inputPipe
             self.outputPipe = outputPipe
+            commandTransport.connect(fileHandle: inputPipe.fileHandleForWriting)
             hasReceivedDriverStatus = false
             updateStatus(
                 driverActivated: false,
@@ -106,17 +227,14 @@ final class PrivilegedVirtualHIDBridge {
         }
     }
 
-    func postPointing(
+    nonisolated func postPointing(
         x: Int8,
         y: Int8,
         verticalWheel: Int8 = 0,
         horizontalWheel: Int8 = 0,
         buttons: UInt32
     ) -> Bool {
-        startIfInstalled()
-        guard isPointingReady else { return false }
-        return sendCommand(
-            kind: .pointing,
+        commandTransport.postPointing(
             x: x,
             y: y,
             verticalWheel: verticalWheel,
@@ -128,56 +246,14 @@ final class PrivilegedVirtualHIDBridge {
     func postKeyboard(modifiers: UInt8, usage: UInt16) -> Bool {
         startIfInstalled()
         guard isKeyboardReady else { return false }
-        return sendCommand(kind: .keyboard, modifiers: modifiers, usage: usage)
+        return commandTransport.postKeyboard(modifiers: modifiers, usage: usage)
     }
 
     func postFunction(isDown: Bool) -> Bool {
         startIfInstalled()
         guard isKeyboardReady else { return false }
         // Apple Vendor Top Case usage 0x0003 is the hardware Fn key.
-        return sendCommand(kind: .function, usage: isDown ? 0x0003 : 0)
-    }
-
-    private func sendCommand(
-        kind: CommandKind,
-        x: Int8 = 0,
-        y: Int8 = 0,
-        verticalWheel: Int8 = 0,
-        horizontalWheel: Int8 = 0,
-        modifiers: UInt8 = 0,
-        usage: UInt16 = 0,
-        buttons: UInt32 = 0
-    ) -> Bool {
-        guard process?.isRunning == true, let inputPipe else {
-            handleTermination()
-            return false
-        }
-
-        var command = Data(repeating: 0, count: 16)
-        command[0] = kind.rawValue
-        command[1] = UInt8(bitPattern: x)
-        command[2] = UInt8(bitPattern: y)
-        command[3] = UInt8(bitPattern: verticalWheel)
-        command[4] = UInt8(bitPattern: horizontalWheel)
-        command[5] = modifiers
-        command.replaceSubrange(6..<8, with: withUnsafeBytes(of: usage.littleEndian, Array.init))
-        command.replaceSubrange(8..<12, with: withUnsafeBytes(of: buttons.littleEndian, Array.init))
-
-        do {
-            try inputPipe.fileHandleForWriting.write(contentsOf: command)
-            return true
-        } catch {
-            hasReceivedDriverStatus = false
-            updateStatus(
-                driverActivated: false,
-                driverConnected: false,
-                driverVersionMismatched: false,
-                keyboardReady: false,
-                pointingReady: false,
-                message: "Virtual hardware connection was interrupted."
-            )
-            return false
-        }
+        return commandTransport.postFunction(usage: isDown ? 0x0003 : 0)
     }
 
     private func consumeOutput(_ data: Data) {
@@ -232,6 +308,7 @@ final class PrivilegedVirtualHIDBridge {
     }
 
     private func handleTermination() {
+        commandTransport.disconnect()
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         process = nil
         inputPipe = nil
@@ -267,9 +344,22 @@ final class PrivilegedVirtualHIDBridge {
         isKeyboardReady = keyboardReady
         isPointingReady = pointingReady
         statusMessage = message
+        commandTransport.updateReadiness(pointing: pointingReady, keyboard: keyboardReady)
         if changed {
             onStatusChange?()
         }
+    }
+
+    private func handleTransportFailure() {
+        hasReceivedDriverStatus = false
+        updateStatus(
+            driverActivated: false,
+            driverConnected: false,
+            driverVersionMismatched: false,
+            keyboardReady: false,
+            pointingReady: false,
+            message: "Virtual hardware connection was interrupted."
+        )
     }
 
     static var isInstalledSecurely: Bool {
