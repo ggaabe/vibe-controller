@@ -177,10 +177,7 @@ final class ActionEngine {
             isToggledOn: false,
             timer: timer
         )
-
-        if !mapping.actionType.isContinuousRepeatPreferred {
-            fireDiscreteAction(mapping)
-        }
+        fireDiscreteAction(mapping)
     }
 
     private func toggleAction(for control: ControllerControlID, mapping: ControllerActionMapping) {
@@ -280,15 +277,15 @@ final class ActionEngine {
             }
             postDoubleClick()
         case .scrollUp:
-            if dispatchToCompanion(.scroll(vertical: 1, horizontal: 0)) {
-                return
-            }
-            postScroll(vertical: 1, horizontal: 0)
-        case .scrollDown:
             if dispatchToCompanion(.scroll(vertical: -1, horizontal: 0)) {
                 return
             }
             postScroll(vertical: -1, horizontal: 0)
+        case .scrollDown:
+            if dispatchToCompanion(.scroll(vertical: 1, horizontal: 0)) {
+                return
+            }
+            postScroll(vertical: 1, horizontal: 0)
         case .scrollLeft:
             if dispatchToCompanion(.scroll(vertical: 0, horizontal: -1)) {
                 return
@@ -681,17 +678,6 @@ private extension Array where Element == KeyboardModifier {
     var cgEventFlags: CGEventFlags {
         reduce(into: CGEventFlags()) { flags, modifier in
             flags.insert(modifier.cgEventFlag)
-        }
-    }
-}
-
-private extension ActionType {
-    var isContinuousRepeatPreferred: Bool {
-        switch self {
-        case .scrollUp, .scrollDown, .scrollLeft, .scrollRight:
-            return true
-        default:
-            return false
         }
     }
 }
