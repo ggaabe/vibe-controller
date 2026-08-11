@@ -9,13 +9,33 @@ final class ProfileStoreTests: XCTestCase {
 
         let document = try store.loadOrCreate()
 
-        XCTAssertEqual(document.version, 1)
+        XCTAssertEqual(document.version, 2)
         XCTAssertEqual(document.profiles.first?.name, "Gabe's Defaults")
         XCTAssertEqual(document.activeProfileId, "gabes-defaults")
         XCTAssertEqual(document.profiles.first?.mappings[.buttonWest]?.shortcut?.displayString, "⇧⌘2")
         XCTAssertEqual(document.profiles.first?.mappings[.buttonEast]?.shortcut?.displayString, "^⇧⌘4")
         XCTAssertEqual(document.profiles.first?.mappings[.rightTrigger]?.shortcut?.displayString, "fn")
-        XCTAssertEqual(document.profiles.first?.cursor.flickBoostEnabled, true)
+        XCTAssertEqual(document.profiles.first?.mappings[.menu]?.shortcut?.displayString, "⌘T")
+        XCTAssertEqual(document.profiles.first?.mappings[.options]?.shortcut?.displayString, "⌘C")
+        XCTAssertEqual(document.profiles.first?.mappings[.home]?.shortcut?.displayString, "⌘W")
+        XCTAssertEqual(document.profiles.first?.cursor.flickBoostEnabled, false)
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .leftShoulder)?.mappings[.dpadLeft]?.actionType,
+            .crossEdgeLeft
+        )
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .leftShoulder)?.mappings[.dpadRight]?.actionType,
+            .crossEdgeRight
+        )
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .leftShoulder)?.mappings[.dpadUp]?.actionType,
+            .crossEdgeUp
+        )
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .leftShoulder)?.mappings[.dpadDown]?.actionType,
+            .crossEdgeDown
+        )
+        XCTAssertEqual(document.profiles.first, ControllerProfile.gabesDefaults)
     }
 
     func testImportProfileRenamesDuplicateIdentifiers() throws {
@@ -72,5 +92,62 @@ final class ProfileStoreTests: XCTestCase {
         let decoded = try JSONDecoder().decode(CursorConfiguration.self, from: data)
 
         XCTAssertFalse(decoded.flickBoostEnabled)
+    }
+
+    func testLegacyProfileDefaultsToNoModifierLayers() throws {
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(ControllerProfile.gabesDefaults)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        object.removeValue(forKey: "modifierLayers")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(
+            ControllerProfile.self,
+            from: legacyData
+        )
+
+        XCTAssertTrue(decoded.modifierLayers.isEmpty)
+    }
+
+    func testModifierLayersRoundTripWithExplicitNoneOverrides() throws {
+        var profile = ControllerProfile.gabesDefaults
+        profile.modifierLayers = [
+            ControllerModifierLayer(
+                modifierControl: .leftShoulder,
+                mappings: [
+                    .dpadRight: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 0, modifiers: [.command])
+                    ),
+                    .dpadLeft: ControllerActionMapping(actionType: .crossEdgeLeft),
+                    .dpadUp: ControllerActionMapping(actionType: .crossEdgeUp),
+                    .dpadDown: ControllerActionMapping(actionType: .crossEdgeDown),
+                    .buttonSouth: ControllerActionMapping(actionType: .none),
+                ]
+            ),
+        ]
+
+        let data = try JSONEncoder().encode(profile)
+        let decoded = try JSONDecoder().decode(ControllerProfile.self, from: data)
+
+        XCTAssertEqual(decoded.modifierLayers, profile.modifierLayers)
+        XCTAssertEqual(
+            decoded.modifierLayer(for: .leftShoulder)?.mappings[.buttonSouth]?.actionType,
+            ActionType.none
+        )
+        XCTAssertEqual(
+            decoded.modifierLayer(for: .leftShoulder)?.mappings[.dpadLeft]?.actionType,
+            ActionType.crossEdgeLeft
+        )
+        XCTAssertEqual(
+            decoded.modifierLayer(for: .leftShoulder)?.mappings[.dpadUp]?.actionType,
+            ActionType.crossEdgeUp
+        )
+        XCTAssertEqual(
+            decoded.modifierLayer(for: .leftShoulder)?.mappings[.dpadDown]?.actionType,
+            ActionType.crossEdgeDown
+        )
     }
 }

@@ -3,14 +3,37 @@ import Combine
 import Foundation
 import SwiftUI
 
+enum ControllerMappingLayer: Hashable, Identifiable {
+    case base
+    case modifier(ControllerControlID)
+
+    var id: String {
+        switch self {
+        case .base:
+            return "base"
+        case .modifier(let control):
+            return "modifier-\(control.rawValue)"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .base:
+            return "Default"
+        case .modifier(let control):
+            return "\(control.displayName) held"
+        }
+    }
+}
+
 enum ControllerSheetSelection: Identifiable {
-    case mapping(ControllerControlID)
+    case mapping(ControllerControlID, ControllerMappingLayer)
     case stick(StickSide)
 
     var id: String {
         switch self {
-        case .mapping(let control):
-            return "mapping-\(control.rawValue)"
+        case .mapping(let control, let layer):
+            return "mapping-\(layer.id)-\(control.rawValue)"
         case .stick(let side):
             return "stick-\(side.rawValue)"
         }
@@ -85,6 +108,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var companionRemoteBuildSummary = "Waiting for peer metadata"
     @Published private(set) var companionHandoffDebug = "No handoff activity yet."
     @Published private(set) var virtualHardwareSetupPhase: VirtualHardwareSetupPhase = .checking
+    @Published private(set) var selectedMappingLayer: ControllerMappingLayer = .base
     @Published var presentedSheet: ControllerSheetSelection?
     @Published var lastErrorMessage: String?
 
@@ -136,6 +160,10 @@ final class AppModel: ObservableObject {
         actionEngine.accessibilityTrusted = accessibilityTrusted
         actionEngine.onToggleCursorSpeeds = { [weak self] in
             self?.toggleCursorSpeeds()
+        }
+        actionEngine.onCrossEdgeSweep = { [weak self] direction in
+            guard let self else { return }
+            self.lastActionStatus = self.cursorEngine.performCrossEdgeSweep(direction)
         }
         actionEngine.onActionStatus = { [weak self] message in
             self?.lastActionStatus = message
@@ -440,6 +468,7 @@ final class AppModel: ObservableObject {
         activeProfileID = profileID
         document.activeProfileId = profileID
         profileStore.setActiveProfileID(profileID)
+        selectedMappingLayer = .base
         persistDocument()
         syncCursorConfiguration()
     }
@@ -471,19 +500,103 @@ final class AppModel: ObservableObject {
             let defaults = ControllerProfile.gabesDefaults
             profile.cursor = defaults.cursor
             profile.mappings = defaults.mappings
+            profile.modifierLayers = defaults.modifierLayers
         }
+        selectedMappingLayer = .base
     }
 
     func presentMapping(for control: ControllerControlID) {
-        presentedSheet = .mapping(control)
+        let editingLayer: ControllerMappingLayer
+        if case .modifier(let modifierControl) = selectedMappingLayer,
+           modifierControl == control {
+            editingLayer = .base
+        } else {
+            editingLayer = selectedMappingLayer
+        }
+        presentedSheet = .mapping(control, editingLayer)
     }
 
     func presentStickSheet(for side: StickSide) {
         presentedSheet = .stick(side)
     }
 
+    var mappingLayers: [ControllerMappingLayer] {
+        [.base] + activeProfile.modifierLayers.map { .modifier($0.modifierControl) }
+    }
+
+    var availableModifierControls: [ControllerControlID] {
+        let existing = Set(activeProfile.modifierLayers.map(\.modifierControl))
+        return ControllerControlID.mappingControls.filter { !existing.contains($0) }
+    }
+
+    var selectedModifierControl: ControllerControlID? {
+        guard case .modifier(let control) = selectedMappingLayer else { return nil }
+        return control
+    }
+
+    var mappingLayerDetail: String {
+        switch selectedMappingLayer {
+        case .base:
+            return "Normal controller actions"
+        case .modifier(let control):
+            return "Overrides used while \(control.displayName) is held"
+        }
+    }
+
+    func selectMappingLayer(_ layer: ControllerMappingLayer) {
+        guard mappingLayers.contains(layer) else { return }
+        selectedMappingLayer = layer
+    }
+
+    func addModifierLayer(_ modifierControl: ControllerControlID) {
+        guard modifierControl.isMappingEligible,
+              activeProfile.modifierLayer(for: modifierControl) == nil else {
+            return
+        }
+        updateActiveProfile { profile in
+            profile.modifierLayers.append(
+                ControllerModifierLayer(modifierControl: modifierControl)
+            )
+        }
+        selectedMappingLayer = .modifier(modifierControl)
+    }
+
+    func removeModifierLayer(_ modifierControl: ControllerControlID) {
+        if selectedModifierControl == modifierControl {
+            selectedMappingLayer = .base
+        }
+        updateActiveProfile { profile in
+            profile.modifierLayers.removeAll {
+                $0.modifierControl == modifierControl
+            }
+        }
+    }
+
+    func mapping(
+        for control: ControllerControlID,
+        in layer: ControllerMappingLayer
+    ) -> ControllerActionMapping {
+        switch layer {
+        case .base:
+            return activeProfile.effectiveMapping(for: control, modifierControl: nil)
+        case .modifier(let modifierControl):
+            return activeProfile.effectiveMapping(
+                for: control,
+                modifierControl: modifierControl
+            )
+        }
+    }
+
+    func hasMappingOverride(
+        for control: ControllerControlID,
+        in layer: ControllerMappingLayer
+    ) -> Bool {
+        guard case .modifier(let modifierControl) = layer else { return false }
+        return activeProfile.modifierLayer(for: modifierControl)?.mappings[control] != nil
+    }
+
     func mapping(for control: ControllerControlID) -> ControllerActionMapping {
-        activeProfile.mappings[control] ?? ControllerActionMapping()
+        mapping(for: control, in: selectedMappingLayer)
     }
 
     func mappingSummary(for control: ControllerControlID) -> String {
@@ -498,27 +611,70 @@ final class AppModel: ObservableObject {
                 return "Off"
             }
         }
-        return mapping(for: control).summary
+        switch selectedMappingLayer {
+        case .base:
+            return mapping(for: control, in: .base).summary
+        case .modifier(let modifierControl):
+            if control == modifierControl {
+                return "Layer Modifier"
+            }
+            let summary = mapping(for: control, in: selectedMappingLayer).summary
+            return hasMappingOverride(for: control, in: selectedMappingLayer)
+                ? summary
+                : "Default · \(summary)"
+        }
     }
 
-    func saveMapping(_ mapping: ControllerActionMapping, for control: ControllerControlID) {
+    func saveMapping(
+        _ mapping: ControllerActionMapping,
+        for control: ControllerControlID,
+        in layer: ControllerMappingLayer
+    ) {
         updateActiveProfile { profile in
-            if mapping.actionType == .none {
-                profile.mappings.removeValue(forKey: control)
-            } else {
-                profile.mappings[control] = mapping
+            switch layer {
+            case .base:
+                if mapping.actionType == .none {
+                    profile.mappings.removeValue(forKey: control)
+                } else {
+                    profile.mappings[control] = mapping
+                }
+            case .modifier(let modifierControl):
+                guard let index = profile.modifierLayers.firstIndex(where: {
+                    $0.modifierControl == modifierControl
+                }) else { return }
+                // None is a meaningful layer override: it suppresses the
+                // default action while this modifier is held.
+                profile.modifierLayers[index].mappings[control] = mapping
             }
         }
     }
 
-    func duplicateAssignments(for shortcut: ShortcutDescriptor, excluding control: ControllerControlID) -> [ControllerControlID] {
-        activeProfile.mappings.compactMap { entry in
-            guard entry.key != control,
-                  entry.value.actionType == .keyboardShortcut,
-                  entry.value.shortcut?.duplicateKey == shortcut.duplicateKey else {
+    func clearMappingOverride(
+        for control: ControllerControlID,
+        in layer: ControllerMappingLayer
+    ) {
+        guard case .modifier(let modifierControl) = layer else { return }
+        updateActiveProfile { profile in
+            guard let index = profile.modifierLayers.firstIndex(where: {
+                $0.modifierControl == modifierControl
+            }) else { return }
+            profile.modifierLayers[index].mappings.removeValue(forKey: control)
+        }
+    }
+
+    func duplicateAssignments(
+        for shortcut: ShortcutDescriptor,
+        excluding control: ControllerControlID,
+        in layer: ControllerMappingLayer
+    ) -> [ControllerControlID] {
+        ControllerControlID.mappingControls.compactMap { candidate in
+            let candidateMapping = mapping(for: candidate, in: layer)
+            guard candidate != control,
+                  candidateMapping.actionType == .keyboardShortcut,
+                  candidateMapping.shortcut?.duplicateKey == shortcut.duplicateKey else {
                 return nil
             }
-            return entry.key
+            return candidate
         }
     }
 
@@ -527,6 +683,7 @@ final class AppModel: ObservableObject {
             let updated = try profileStore.importProfile(from: url, into: document)
             document = updated
             activeProfileID = updated.activeProfileId
+            selectedMappingLayer = .base
             profileStore.setActiveProfileID(activeProfileID)
             persistDocument()
             syncCursorConfiguration()

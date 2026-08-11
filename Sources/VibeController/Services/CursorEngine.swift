@@ -102,6 +102,10 @@ final class CursorEngine: @unchecked Sendable {
     func performDiagnosticNudge() -> String {
         motionLoop.performDiagnosticNudge()
     }
+
+    func performCrossEdgeSweep(_ direction: CrossEdgeDirection) -> String {
+        motionLoop.performCrossEdgeSweep(direction)
+    }
 }
 
 private final class MainActorMovementAccumulator: @unchecked Sendable {
@@ -195,6 +199,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
     private var smoothedVelocity = SIMD2<Double>.zero
     private var primaryFlickBoost = 1.0
     private var primaryFlickTracker = FlickBoostTracker()
+    private var crossEdgeSweep: CrossEdgeSweep?
     private var lastKnownCursorPosition: CGPoint?
     private var lastSyntheticCursorUpdateTime = 0.0
     private var enabled = true
@@ -233,6 +238,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
             self.lastTickTime = ProcessInfo.processInfo.systemUptime
             if !enabled {
                 self.smoothedVelocity = .zero
+                self.crossEdgeSweep = nil
                 self.resetFlickState()
                 self.endLeftDragOnQueue()
             }
@@ -246,6 +252,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
             self.lastTickTime = ProcessInfo.processInfo.systemUptime
             if !trusted {
                 self.smoothedVelocity = .zero
+                self.crossEdgeSweep = nil
                 self.resetFlickState()
                 self.endLeftDragOnQueue()
             }
@@ -259,6 +266,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
             self.lastTickTime = ProcessInfo.processInfo.systemUptime
             if suspended {
                 self.smoothedVelocity = .zero
+                self.crossEdgeSweep = nil
                 self.resetFlickState()
             }
         }
@@ -309,6 +317,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
         syncOnQueue {
             endLeftDragOnQueue()
             smoothedVelocity = .zero
+            crossEdgeSweep = nil
             leftStick = StickSnapshot()
             rightStick = StickSnapshot()
             resetFlickState()
@@ -387,12 +396,71 @@ private final class CursorMotionLoop: @unchecked Sendable {
         }
     }
 
+    func performCrossEdgeSweep(_ direction: CrossEdgeDirection) -> String {
+        syncOnQueue {
+            guard enabled else {
+                publishDiagnostics(
+                    state: .disabled,
+                    velocity: .zero,
+                    location: nil,
+                    message: "Runtime disabled."
+                )
+                return "Runtime is disabled."
+            }
+            guard accessibilityTrusted else {
+                publishDiagnostics(
+                    state: .needsAccessibility,
+                    velocity: .zero,
+                    location: nil,
+                    message: "Grant Accessibility to move the cursor."
+                )
+                return "Accessibility permission is not granted."
+            }
+            guard !suspended else {
+                publishDiagnostics(
+                    state: .idle,
+                    velocity: .zero,
+                    location: nil,
+                    message: "Controller cursor control is suspended while Vibe Controller is frontmost."
+                )
+                return "Cursor control is suspended while Vibe Controller is frontmost."
+            }
+            guard inputBridge.isVirtualPointingReady else {
+                publishDiagnostics(
+                    state: .idle,
+                    velocity: .zero,
+                    location: nil,
+                    message: "Virtual Hardware Support is required for edge crossing."
+                )
+                return "Virtual Hardware Support must be ready before crossing a Universal Control edge."
+            }
+
+            diagnosticTimer?.cancel()
+            diagnosticTimer = nil
+            diagnosticReportsRemaining = 0
+            crossEdgeSweep = CrossEdgeSweep(direction: direction)
+            smoothedVelocity = .zero
+            resetFlickState()
+            lastTickTime = ProcessInfo.processInfo.systemUptime
+            publishDiagnostics(
+                state: .moving,
+                velocity: direction.motionVector * CrossEdgeSweep.speed,
+                location: nil,
+                message: "Crossing the " + direction.displayName.lowercased()
+                    + " Universal Control edge."
+            )
+            return "Crossing the " + direction.displayName.lowercased()
+                + " Universal Control edge."
+        }
+    }
+
     func stop() {
         syncOnQueue {
             timer?.cancel()
             timer = nil
             diagnosticTimer?.cancel()
             diagnosticTimer = nil
+            crossEdgeSweep = nil
             endLeftDragOnQueue()
         }
     }
@@ -420,6 +488,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
 
         guard enabled, accessibilityTrusted else {
             smoothedVelocity = .zero
+            crossEdgeSweep = nil
             resetFlickState()
             if !accessibilityTrusted {
                 endLeftDragOnQueue()
@@ -435,6 +504,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
 
         guard !suspended else {
             smoothedVelocity = .zero
+            crossEdgeSweep = nil
             resetFlickState()
             publishDiagnostics(
                 state: .idle,
@@ -442,6 +512,29 @@ private final class CursorMotionLoop: @unchecked Sendable {
                 location: nil,
                 message: "Controller cursor control is suspended while Vibe Controller is frontmost."
             )
+            return
+        }
+
+        if var sweep = crossEdgeSweep {
+            let velocity = sweep.direction.motionVector * CrossEdgeSweep.speed
+            let frameDelta = sweep.nextDelta(elapsedTime: deltaTime)
+            crossEdgeSweep = sweep.isComplete ? nil : sweep
+            smoothedVelocity = velocity
+            moveCursor(
+                by: frameDelta,
+                allowInterception: false,
+                virtualOnly: true
+            )
+            if sweep.isComplete {
+                smoothedVelocity = .zero
+                publishDiagnostics(
+                    state: .idle,
+                    velocity: .zero,
+                    location: nil,
+                    message: "Completed the " + sweep.direction.displayName.lowercased()
+                        + " edge crossing."
+                )
+            }
             return
         }
 
@@ -552,7 +645,11 @@ private final class CursorMotionLoop: @unchecked Sendable {
         primaryFlickTracker.reset()
     }
 
-    private func moveCursor(by delta: SIMD2<Double>, allowInterception: Bool) {
+    private func moveCursor(
+        by delta: SIMD2<Double>,
+        allowInterception: Bool,
+        virtualOnly: Bool = false
+    ) {
         if allowInterception, movementAccumulator.hasHandler {
             let currentPosition = currentCursorPositionOnQueue()
             movementAccumulator.submit(
@@ -569,6 +666,27 @@ private final class CursorMotionLoop: @unchecked Sendable {
                 velocity: smoothedVelocity,
                 location: currentPosition,
                 message: "Routing cursor movement through the companion path."
+            )
+            return
+        }
+
+        if virtualOnly {
+            guard inputBridge.postVirtualRelativePointer(delta: delta) else {
+                crossEdgeSweep = nil
+                smoothedVelocity = .zero
+                publishDiagnostics(
+                    state: .idle,
+                    velocity: .zero,
+                    location: nil,
+                    message: "Virtual Hardware Support stopped before the edge crossing completed."
+                )
+                return
+            }
+            publishDiagnostics(
+                state: .moving,
+                velocity: smoothedVelocity,
+                location: nil,
+                message: "Posting edge-crossing movement through virtual hardware."
             )
             return
         }

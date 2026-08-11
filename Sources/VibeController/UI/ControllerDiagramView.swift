@@ -3,6 +3,7 @@ import SwiftUI
 struct ControllerDiagramView: View {
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.colorScheme) private var colorScheme
+    @State private var isConfirmingLayerRemoval = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -17,6 +18,64 @@ struct ControllerDiagramView: View {
                 }
             }
 
+            HStack(spacing: 10) {
+                Label("Layer", systemImage: "square.3.layers.3d")
+                    .font(.subheadline.weight(.semibold))
+
+                Picker(
+                    "Mapping layer",
+                    selection: Binding(
+                        get: { appModel.selectedMappingLayer },
+                        set: { appModel.selectMappingLayer($0) }
+                    )
+                ) {
+                    ForEach(appModel.mappingLayers) { layer in
+                        Text(layer.displayName).tag(layer)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 170)
+                .frame(minHeight: 40)
+
+                Menu {
+                    ForEach(appModel.availableModifierControls) { control in
+                        Button(control.displayName) {
+                            appModel.addModifierLayer(control)
+                        }
+                    }
+                } label: {
+                    Label("Add Modifier", systemImage: "plus")
+                }
+                .frame(minHeight: 40)
+                .disabled(appModel.availableModifierControls.isEmpty)
+
+                if let modifierControl = appModel.selectedModifierControl {
+                    Button(role: .destructive) {
+                        isConfirmingLayerRemoval = true
+                    } label: {
+                        Label("Remove Layer", systemImage: "trash")
+                    }
+                    .frame(minHeight: 40)
+                    .accessibilityHint("Removes all overrides configured for \(modifierControl.displayName).")
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(appModel.mappingLayerDetail)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    if let modifierControl = appModel.selectedModifierControl {
+                        Text("Tap \(modifierControl.displayName) alone to run its Default action.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .multilineTextAlignment(.trailing)
+            }
+            .controlSize(.regular)
+            .frame(minHeight: 40)
+
             ControllerCanvas(canvasColors: canvasColors, borderColor: borderColor)
                 .frame(minHeight: 460, idealHeight: 540, maxHeight: 600)
                 .contentShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
@@ -28,6 +87,21 @@ struct ControllerDiagramView: View {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .fill(Color(NSColor.controlBackgroundColor))
         )
+        .confirmationDialog(
+            "Remove modifier layer?",
+            isPresented: $isConfirmingLayerRemoval
+        ) {
+            if let modifierControl = appModel.selectedModifierControl {
+                Button("Remove \(modifierControl.displayName) Layer", role: .destructive) {
+                    appModel.removeModifierLayer(modifierControl)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let modifierControl = appModel.selectedModifierControl {
+                Text("This removes every shortcut override used while \(modifierControl.displayName) is held.")
+            }
+        }
     }
 
     private var canvasColors: [Color] {

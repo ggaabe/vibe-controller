@@ -121,4 +121,60 @@ final class CursorMathTests: XCTestCase {
         XCTAssertEqual(CursorMath.decayedFlickBoost(2, elapsedTime: 1), 1.5, accuracy: 0.000_001)
         XCTAssertEqual(CursorMath.decayedFlickBoost(2, elapsedTime: 2), 1, accuracy: 0.000_001)
     }
+
+    func testCrossEdgeSweepsMirrorEachOtherWithoutVerticalMovement() {
+        var leftSweep = CrossEdgeSweep(direction: .left)
+        var rightSweep = CrossEdgeSweep(direction: .right)
+
+        let leftDelta = leftSweep.nextDelta(elapsedTime: 1.0 / 120.0)
+        let rightDelta = rightSweep.nextDelta(elapsedTime: 1.0 / 120.0)
+
+        XCTAssertEqual(leftDelta.x, -rightDelta.x, accuracy: 0.000_001)
+        XCTAssertEqual(leftDelta.y, 0)
+        XCTAssertEqual(rightDelta.y, 0)
+    }
+
+    func testVerticalCrossEdgeSweepsMirrorEachOtherWithoutHorizontalMovement() {
+        var upSweep = CrossEdgeSweep(direction: .up)
+        var downSweep = CrossEdgeSweep(direction: .down)
+
+        let upDelta = upSweep.nextDelta(elapsedTime: 1.0 / 120.0)
+        let downDelta = downSweep.nextDelta(elapsedTime: 1.0 / 120.0)
+
+        XCTAssertEqual(upDelta.y, -downDelta.y, accuracy: 0.000_001)
+        XCTAssertEqual(upDelta.x, 0)
+        XCTAssertEqual(downDelta.x, 0)
+    }
+
+    func testCrossEdgeSweepDistanceIsBoundedAndCadenceIndependent() {
+        let expectedDistance = CrossEdgeSweep.speed * CrossEdgeSweep.duration
+        XCTAssertEqual(expectedDistance, CrossEdgeSweep.targetDistance, accuracy: 0.000_001)
+        XCTAssertEqual(
+            consumedCrossEdgeDistance(frameDuration: 1.0 / 120.0),
+            expectedDistance,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            consumedCrossEdgeDistance(frameDuration: 1.0 / 60.0),
+            expectedDistance,
+            accuracy: 0.000_001
+        )
+    }
+
+    func testCrossEdgeSweepIgnoresNegativeElapsedTime() {
+        var sweep = CrossEdgeSweep(direction: .right)
+        let initialRemainingDuration = sweep.remainingDuration
+
+        XCTAssertEqual(sweep.nextDelta(elapsedTime: -1), .zero)
+        XCTAssertEqual(sweep.remainingDuration, initialRemainingDuration)
+    }
+
+    private func consumedCrossEdgeDistance(frameDuration: Double) -> Double {
+        var sweep = CrossEdgeSweep(direction: .right)
+        var distance = 0.0
+        while !sweep.isComplete {
+            distance += sweep.nextDelta(elapsedTime: frameDuration).x
+        }
+        return distance
+    }
 }

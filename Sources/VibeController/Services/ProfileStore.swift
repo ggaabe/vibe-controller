@@ -110,7 +110,8 @@ final class ProfileStore {
             id: profileID,
             name: profileName,
             cursor: profile.cursor,
-            mappings: profile.mappings
+            mappings: profile.mappings,
+            modifierLayers: profile.modifierLayers
         )
         merged.profiles.append(imported)
         merged.activeProfileId = imported.id
@@ -119,7 +120,7 @@ final class ProfileStore {
 
     private func normalize(_ document: ProfileDocument) -> ProfileDocument {
         var normalized = document
-        normalized.version = max(document.version, 1)
+        normalized.version = max(document.version, ProfileDocument.defaultDocument.version)
         if normalized.profiles.isEmpty {
             normalized.profiles = ProfileDocument.defaultDocument.profiles
         }

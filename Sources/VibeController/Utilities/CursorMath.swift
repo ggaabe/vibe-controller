@@ -141,3 +141,27 @@ struct FlickBoostTracker: Sendable {
         }
     }
 }
+
+struct CrossEdgeSweep: Sendable {
+    static let speed = 6_000.0
+    static let targetDistance = 1_500.0
+    static let duration = targetDistance / speed
+
+    let direction: CrossEdgeDirection
+    private(set) var remainingDuration: Double
+
+    init(direction: CrossEdgeDirection) {
+        self.direction = direction
+        remainingDuration = Self.duration
+    }
+
+    var isComplete: Bool {
+        remainingDuration <= 0
+    }
+
+    mutating func nextDelta(elapsedTime: Double) -> SIMD2<Double> {
+        let appliedDuration = min(max(elapsedTime, 0), remainingDuration)
+        remainingDuration -= appliedDuration
+        return direction.motionVector * Self.speed * appliedDuration
+    }
+}

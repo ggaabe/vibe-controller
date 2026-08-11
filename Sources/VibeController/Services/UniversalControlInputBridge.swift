@@ -99,6 +99,17 @@ private final class RelativePointerOutput: @unchecked Sendable {
     }
 
     func postRelativePointer(delta: SIMD2<Double>) -> Bool {
+        postRelativePointer(delta: delta, virtualOnly: false)
+    }
+
+    func postVirtualRelativePointer(delta: SIMD2<Double>) -> Bool {
+        postRelativePointer(delta: delta, virtualOnly: true)
+    }
+
+    private func postRelativePointer(
+        delta: SIMD2<Double>,
+        virtualOnly: Bool
+    ) -> Bool {
         lock.lock()
         defer { lock.unlock() }
 
@@ -111,11 +122,13 @@ private final class RelativePointerOutput: @unchecked Sendable {
         eventData.mouseMove.dx = dx
         eventData.mouseMove.dy = dy
 
-        let posted = postVirtualPointer(dx: dx, dy: dy) || legacyPoster.post(
-            eventType: UInt32(NX_MOUSEMOVED),
-            eventData: &eventData,
-            includeGlobalFlags: false,
-            eventFlags: 0
+        let posted = postVirtualPointer(dx: dx, dy: dy) || (
+            !virtualOnly && legacyPoster.post(
+                eventType: UInt32(NX_MOUSEMOVED),
+                eventData: &eventData,
+                includeGlobalFlags: false,
+                eventFlags: 0
+            )
         )
         guard posted else {
             pendingDelta = .zero
@@ -280,6 +293,10 @@ final class UniversalControlInputBridge {
 
     nonisolated func postRelativePointer(delta: SIMD2<Double>) -> Bool {
         relativePointerOutput.postRelativePointer(delta: delta)
+    }
+
+    nonisolated func postVirtualRelativePointer(delta: SIMD2<Double>) -> Bool {
+        relativePointerOutput.postVirtualRelativePointer(delta: delta)
     }
 
     nonisolated func postMouseButton(

@@ -7,6 +7,7 @@ final class ActionEngine {
     var accessibilityTrusted = false
     var suspendActionExecution = false
     var onToggleCursorSpeeds: (() -> Void)?
+    var onCrossEdgeSweep: ((CrossEdgeDirection) -> Void)?
     var onActionStatus: ((String) -> Void)?
     var companionDispatch: ((CompanionControlEvent) -> Bool)?
 
@@ -14,6 +15,9 @@ final class ActionEngine {
     private let eventSource = CGEventSource(stateID: .combinedSessionState)
     private var previousPressedControls = Set<ControllerControlID>()
     private var activeStates: [ControllerControlID: ActiveControlState] = [:]
+    private var armedModifierControls = Set<ControllerControlID>()
+    private var consumedModifierControls = Set<ControllerControlID>()
+    private var modifierPressOrder: [ControllerControlID] = []
 
     init(cursorEngine: CursorEngine) {
         self.cursorEngine = cursorEngine
@@ -21,7 +25,7 @@ final class ActionEngine {
 
     func process(snapshot: ControllerSnapshot, profile: ControllerProfile) {
         let actuatedControls = Set(
-            profile.mappings.keys.filter { isControlActuated($0, snapshot: snapshot) }
+            ControllerControlID.mappingControls.filter { isControlActuated($0, snapshot: snapshot) }
         )
 
         guard isEnabled, accessibilityTrusted else {
@@ -36,31 +40,53 @@ final class ActionEngine {
             return
         }
 
-        for (control, mapping) in profile.mappings where mapping.actionType != .none {
-            let isPressed = actuatedControls.contains(control)
-            let wasPressed = previousPressedControls.contains(control)
-
-            if isPressed && !wasPressed {
-                handlePress(for: control, mapping: mapping)
-            } else if !isPressed && wasPressed {
-                handleRelease(for: control, mapping: mapping)
+        let newlyReleased = previousPressedControls.subtracting(actuatedControls)
+        for control in ControllerControlID.mappingControls where newlyReleased.contains(control) {
+            if armedModifierControls.contains(control) {
+                releaseModifier(control, profile: profile)
+            } else {
+                handleRelease(for: control)
             }
+        }
+
+        let newlyPressed = actuatedControls.subtracting(previousPressedControls)
+        let modifierControls = profile.modifierLayers.map(\.modifierControl)
+        var handledPresses = Set<ControllerControlID>()
+
+        // Arm modifiers before resolving other buttons so a single controller
+        // snapshot containing both sides of a chord still activates the layer.
+        for modifierControl in modifierControls where newlyPressed.contains(modifierControl) {
+            if let activeModifier = activeModifierControl(in: actuatedControls) {
+                press(
+                    modifierControl,
+                    profile: profile,
+                    modifierControl: activeModifier
+                )
+            } else {
+                armModifier(modifierControl)
+            }
+            handledPresses.insert(modifierControl)
+        }
+
+        for control in ControllerControlID.mappingControls
+        where newlyPressed.contains(control) && !handledPresses.contains(control) {
+            press(
+                control,
+                profile: profile,
+                modifierControl: activeModifierControl(in: actuatedControls)
+            )
         }
 
         previousPressedControls = actuatedControls
     }
 
     func cancelAll() {
-        for (control, state) in activeStates {
-            state.timer?.cancel()
-            if state.isHoldingShortcut, let shortcut = state.shortcut {
-                postShortcutUp(shortcut)
-            }
-            if state.isDragging {
-                cursorEngine.endLeftDrag()
-            }
-            activeStates[control] = nil
+        for control in Array(activeStates.keys) {
+            finishActiveState(for: control)
         }
+        armedModifierControls.removeAll()
+        consumedModifierControls.removeAll()
+        modifierPressOrder.removeAll()
         previousPressedControls.removeAll()
     }
 
@@ -73,37 +99,124 @@ final class ActionEngine {
         }
     }
 
-    private func handlePress(for control: ControllerControlID, mapping: ControllerActionMapping) {
+    private func armModifier(_ control: ControllerControlID) {
+        armedModifierControls.insert(control)
+        modifierPressOrder.removeAll(where: { $0 == control })
+        modifierPressOrder.append(control)
+    }
+
+    private func activeModifierControl(
+        in actuatedControls: Set<ControllerControlID>
+    ) -> ControllerControlID? {
+        modifierPressOrder.reversed().first {
+            armedModifierControls.contains($0) && actuatedControls.contains($0)
+        }
+    }
+
+    private func press(
+        _ control: ControllerControlID,
+        profile: ControllerProfile,
+        modifierControl: ControllerControlID?
+    ) {
+        if let modifierControl {
+            consumedModifierControls.insert(modifierControl)
+        }
+        let mapping = profile.effectiveMapping(
+            for: control,
+            modifierControl: modifierControl
+        )
+        handlePress(
+            for: control,
+            mapping: mapping,
+            sourceModifier: modifierControl
+        )
+    }
+
+    private func releaseModifier(
+        _ control: ControllerControlID,
+        profile: ControllerProfile
+    ) {
+        armedModifierControls.remove(control)
+        modifierPressOrder.removeAll(where: { $0 == control })
+
+        let wasConsumed = consumedModifierControls.remove(control) != nil
+        if wasConsumed {
+            let activeControls = activeStates.compactMap { activeControl, state in
+                state.sourceModifier == control && !state.isToggledOn
+                    ? activeControl
+                    : nil
+            }
+            for activeControl in activeControls {
+                finishActiveState(for: activeControl)
+            }
+            return
+        }
+
+        // A modifier remains dual-purpose: releasing it without using a chord
+        // performs its normal action once. This deliberately treats the normal
+        // mapping as a tap so a layer modifier can never leave a held key down.
+        fireModifierTapAction(profile.effectiveMapping(for: control, modifierControl: nil))
+    }
+
+    private func fireModifierTapAction(_ mapping: ControllerActionMapping) {
+        if mapping.actionType == .leftMouseHold {
+            postMouseClick(button: .left)
+            return
+        }
+        fireDiscreteAction(mapping)
+    }
+
+    private func handlePress(
+        for control: ControllerControlID,
+        mapping: ControllerActionMapping,
+        sourceModifier: ControllerControlID?
+    ) {
         switch mapping.triggerMode {
         case .tap:
             fireDiscreteAction(mapping)
         case .holdWhilePressed:
-            beginHoldAction(for: control, mapping: mapping)
+            beginHoldAction(
+                for: control,
+                mapping: mapping,
+                sourceModifier: sourceModifier
+            )
         case .repeatWhileHeld:
-            beginRepeatingAction(for: control, mapping: mapping)
+            beginRepeatingAction(
+                for: control,
+                mapping: mapping,
+                sourceModifier: sourceModifier
+            )
         case .toggle:
-            toggleAction(for: control, mapping: mapping)
+            toggleAction(
+                for: control,
+                mapping: mapping,
+                sourceModifier: sourceModifier
+            )
         }
     }
 
-    private func handleRelease(for control: ControllerControlID, mapping: ControllerActionMapping) {
-        switch mapping.triggerMode {
+    private func handleRelease(for control: ControllerControlID) {
+        guard let state = activeStates[control] else { return }
+        switch state.triggerMode {
         case .tap, .toggle:
             break
-        case .holdWhilePressed:
-            endHoldAction(for: control)
-        case .repeatWhileHeld:
-            activeStates[control]?.timer?.cancel()
-            activeStates[control]?.timer = nil
+        case .holdWhilePressed, .repeatWhileHeld:
+            finishActiveState(for: control)
         }
     }
 
-    private func beginHoldAction(for control: ControllerControlID, mapping: ControllerActionMapping) {
+    private func beginHoldAction(
+        for control: ControllerControlID,
+        mapping: ControllerActionMapping,
+        sourceModifier: ControllerControlID?
+    ) {
         switch mapping.actionType {
         case .keyboardShortcut:
             guard let shortcut = mapping.shortcut else { return }
             if dispatchToCompanion(.shortcut(shortcut, phase: .down)) {
                 activeStates[control] = ActiveControlState(
+                    triggerMode: mapping.triggerMode,
+                    sourceModifier: sourceModifier,
                     shortcut: shortcut,
                     isHoldingShortcut: true,
                     isDragging: false,
@@ -114,6 +227,8 @@ final class ActionEngine {
             }
             postShortcutDown(shortcut)
             activeStates[control] = ActiveControlState(
+                triggerMode: mapping.triggerMode,
+                sourceModifier: sourceModifier,
                 shortcut: shortcut,
                 isHoldingShortcut: true,
                 isDragging: false,
@@ -123,6 +238,8 @@ final class ActionEngine {
         case .leftMouseHold:
             if dispatchToCompanion(.mouse(button: .left, phase: .down)) {
                 activeStates[control] = ActiveControlState(
+                    triggerMode: mapping.triggerMode,
+                    sourceModifier: sourceModifier,
                     shortcut: nil,
                     isHoldingShortcut: false,
                     isDragging: true,
@@ -133,6 +250,8 @@ final class ActionEngine {
             }
             cursorEngine.beginLeftDrag()
             activeStates[control] = ActiveControlState(
+                triggerMode: mapping.triggerMode,
+                sourceModifier: sourceModifier,
                 shortcut: nil,
                 isHoldingShortcut: false,
                 isDragging: true,
@@ -144,8 +263,9 @@ final class ActionEngine {
         }
     }
 
-    private func endHoldAction(for control: ControllerControlID) {
+    private func finishActiveState(for control: ControllerControlID) {
         guard let state = activeStates[control] else { return }
+        state.timer?.cancel()
         if state.isHoldingShortcut, let shortcut = state.shortcut {
             if !dispatchToCompanion(.shortcut(shortcut, phase: .up)) {
                 postShortcutUp(shortcut)
@@ -159,7 +279,11 @@ final class ActionEngine {
         activeStates[control] = nil
     }
 
-    private func beginRepeatingAction(for control: ControllerControlID, mapping: ControllerActionMapping) {
+    private func beginRepeatingAction(
+        for control: ControllerControlID,
+        mapping: ControllerActionMapping,
+        sourceModifier: ControllerControlID?
+    ) {
         activeStates[control]?.timer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(
@@ -171,6 +295,8 @@ final class ActionEngine {
         }
         timer.resume()
         activeStates[control] = ActiveControlState(
+            triggerMode: mapping.triggerMode,
+            sourceModifier: sourceModifier,
             shortcut: nil,
             isHoldingShortcut: false,
             isDragging: false,
@@ -180,7 +306,11 @@ final class ActionEngine {
         fireDiscreteAction(mapping)
     }
 
-    private func toggleAction(for control: ControllerControlID, mapping: ControllerActionMapping) {
+    private func toggleAction(
+        for control: ControllerControlID,
+        mapping: ControllerActionMapping,
+        sourceModifier: ControllerControlID?
+    ) {
         let isOn = activeStates[control]?.isToggledOn ?? false
         if isOn {
             if mapping.actionType == .leftMouseHold {
@@ -200,6 +330,8 @@ final class ActionEngine {
         case .leftMouseHold:
             if dispatchToCompanion(.mouse(button: .left, phase: .down)) {
                 activeStates[control] = ActiveControlState(
+                    triggerMode: mapping.triggerMode,
+                    sourceModifier: sourceModifier,
                     shortcut: nil,
                     isHoldingShortcut: false,
                     isDragging: true,
@@ -210,6 +342,8 @@ final class ActionEngine {
             }
             cursorEngine.beginLeftDrag()
             activeStates[control] = ActiveControlState(
+                triggerMode: mapping.triggerMode,
+                sourceModifier: sourceModifier,
                 shortcut: nil,
                 isHoldingShortcut: false,
                 isDragging: true,
@@ -220,6 +354,8 @@ final class ActionEngine {
             guard let shortcut = mapping.shortcut else { return }
             if dispatchToCompanion(.shortcut(shortcut, phase: .down)) {
                 activeStates[control] = ActiveControlState(
+                    triggerMode: mapping.triggerMode,
+                    sourceModifier: sourceModifier,
                     shortcut: shortcut,
                     isHoldingShortcut: true,
                     isDragging: false,
@@ -230,6 +366,8 @@ final class ActionEngine {
             }
             postShortcutDown(shortcut)
             activeStates[control] = ActiveControlState(
+                triggerMode: mapping.triggerMode,
+                sourceModifier: sourceModifier,
                 shortcut: shortcut,
                 isHoldingShortcut: true,
                 isDragging: false,
@@ -306,6 +444,14 @@ final class ActionEngine {
                 return
             }
             triggerSpaceSwitch(.right)
+        case .crossEdgeLeft:
+            onCrossEdgeSweep?(.left)
+        case .crossEdgeRight:
+            onCrossEdgeSweep?(.right)
+        case .crossEdgeUp:
+            onCrossEdgeSweep?(.up)
+        case .crossEdgeDown:
+            onCrossEdgeSweep?(.down)
         case .toggleCursorSpeeds:
             onToggleCursorSpeeds?()
         }
@@ -652,6 +798,8 @@ private extension ShortcutDescriptor {
 }
 
 private struct ActiveControlState {
+    var triggerMode: TriggerMode
+    var sourceModifier: ControllerControlID?
     var shortcut: ShortcutDescriptor?
     var isHoldingShortcut: Bool
     var isDragging: Bool

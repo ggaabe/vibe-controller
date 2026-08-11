@@ -1,5 +1,27 @@
 import Foundation
 
+enum CrossEdgeDirection: String, Equatable, Sendable {
+    case left
+    case right
+    case up
+    case down
+
+    var displayName: String { rawValue.capitalized }
+
+    var motionVector: SIMD2<Double> {
+        switch self {
+        case .left:
+            return SIMD2<Double>(-1, 0)
+        case .right:
+            return SIMD2<Double>(1, 0)
+        case .up:
+            return SIMD2<Double>(0, -1)
+        case .down:
+            return SIMD2<Double>(0, 1)
+        }
+    }
+}
+
 enum ActionType: String, Codable, CaseIterable, Identifiable, Sendable {
     case none
     case keyboardShortcut
@@ -14,6 +36,10 @@ enum ActionType: String, Codable, CaseIterable, Identifiable, Sendable {
     case scrollRight
     case switchSpaceLeft
     case switchSpaceRight
+    case crossEdgeLeft
+    case crossEdgeRight
+    case crossEdgeUp
+    case crossEdgeDown
     case toggleCursorSpeeds
 
     var id: String { rawValue }
@@ -46,6 +72,14 @@ enum ActionType: String, Codable, CaseIterable, Identifiable, Sendable {
             return "Switch Space Left"
         case .switchSpaceRight:
             return "Switch Space Right"
+        case .crossEdgeLeft:
+            return "Cross Edge Left"
+        case .crossEdgeRight:
+            return "Cross Edge Right"
+        case .crossEdgeUp:
+            return "Cross Edge Up"
+        case .crossEdgeDown:
+            return "Cross Edge Down"
         case .toggleCursorSpeeds:
             return "Toggle Cursor Speeds"
         }
@@ -62,6 +96,8 @@ enum ActionType: String, Codable, CaseIterable, Identifiable, Sendable {
         case .scrollUp, .scrollDown, .scrollLeft, .scrollRight:
             return .repeatWhileHeld
         case .switchSpaceLeft, .switchSpaceRight:
+            return .tap
+        case .crossEdgeLeft, .crossEdgeRight, .crossEdgeUp, .crossEdgeDown:
             return .tap
         case .toggleCursorSpeeds:
             return .tap
@@ -82,10 +118,26 @@ enum ActionType: String, Codable, CaseIterable, Identifiable, Sendable {
             return [.tap, .repeatWhileHeld]
         case .switchSpaceLeft, .switchSpaceRight:
             return [.tap, .repeatWhileHeld]
-        case .toggleCursorSpeeds:
+        case .crossEdgeLeft, .crossEdgeRight, .crossEdgeUp, .crossEdgeDown,
+             .toggleCursorSpeeds:
             return [.tap]
         case .leftClick, .rightClick, .middleClick, .doubleClick:
             return [.tap, .repeatWhileHeld]
+        }
+    }
+
+    var crossEdgeDirection: CrossEdgeDirection? {
+        switch self {
+        case .crossEdgeLeft:
+            return .left
+        case .crossEdgeRight:
+            return .right
+        case .crossEdgeUp:
+            return .up
+        case .crossEdgeDown:
+            return .down
+        default:
+            return nil
         }
     }
 }
@@ -142,6 +194,49 @@ struct ControllerActionMapping: Codable, Hashable, Sendable {
         default:
             return actionType.displayName
         }
+    }
+}
+
+struct ControllerModifierLayer: Identifiable, Hashable, Sendable {
+    var modifierControl: ControllerControlID
+    var mappings: [ControllerControlID: ControllerActionMapping]
+
+    var id: ControllerControlID { modifierControl }
+
+    init(
+        modifierControl: ControllerControlID,
+        mappings: [ControllerControlID: ControllerActionMapping] = [:]
+    ) {
+        self.modifierControl = modifierControl
+        self.mappings = mappings
+    }
+}
+
+extension ControllerModifierLayer: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case modifierControl
+        case mappings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        modifierControl = try container.decode(ControllerControlID.self, forKey: .modifierControl)
+        let rawMappings = try container.decodeIfPresent(
+            [String: ControllerActionMapping].self,
+            forKey: .mappings
+        ) ?? [:]
+        mappings = Dictionary(
+            uniqueKeysWithValues: rawMappings.compactMap { key, value in
+                ControllerControlID(rawValue: key).map { ($0, value) }
+            }
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(modifierControl, forKey: .modifierControl)
+        let rawMappings = Dictionary(uniqueKeysWithValues: mappings.map { ($0.key.rawValue, $0.value) })
+        try container.encode(rawMappings, forKey: .mappings)
     }
 }
 
@@ -260,17 +355,35 @@ struct ControllerProfile: Identifiable, Hashable, Sendable {
     var name: String
     var cursor: CursorConfiguration
     var mappings: [ControllerControlID: ControllerActionMapping]
+    var modifierLayers: [ControllerModifierLayer]
 
     init(
         id: String,
         name: String,
         cursor: CursorConfiguration,
-        mappings: [ControllerControlID: ControllerActionMapping]
+        mappings: [ControllerControlID: ControllerActionMapping],
+        modifierLayers: [ControllerModifierLayer] = []
     ) {
         self.id = id
         self.name = name
         self.cursor = cursor
         self.mappings = mappings
+        self.modifierLayers = modifierLayers
+    }
+
+    func modifierLayer(for control: ControllerControlID) -> ControllerModifierLayer? {
+        modifierLayers.first(where: { $0.modifierControl == control })
+    }
+
+    func effectiveMapping(
+        for control: ControllerControlID,
+        modifierControl: ControllerControlID?
+    ) -> ControllerActionMapping {
+        if let modifierControl,
+           let override = modifierLayer(for: modifierControl)?.mappings[control] {
+            return override
+        }
+        return mappings[control] ?? ControllerActionMapping()
     }
 }
 
@@ -280,6 +393,7 @@ extension ControllerProfile: Codable {
         case name
         case cursor
         case mappings
+        case modifierLayers
     }
 
     init(from decoder: Decoder) throws {
@@ -293,6 +407,10 @@ extension ControllerProfile: Codable {
                 ControllerControlID(rawValue: key).map { ($0, value) }
             }
         )
+        modifierLayers = try container.decodeIfPresent(
+            [ControllerModifierLayer].self,
+            forKey: .modifierLayers
+        ) ?? []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -302,6 +420,7 @@ extension ControllerProfile: Codable {
         try container.encode(cursor, forKey: .cursor)
         let rawMappings = Dictionary(uniqueKeysWithValues: mappings.map { ($0.key.rawValue, $0.value) })
         try container.encode(rawMappings, forKey: .mappings)
+        try container.encode(modifierLayers, forKey: .modifierLayers)
     }
 }
 
@@ -330,7 +449,7 @@ extension ControllerProfile {
             invertPrecisionY: false,
             horizontalSpeedMultiplier: 1.0,
             verticalSpeedMultiplier: 1.0,
-            flickBoostEnabled: true
+            flickBoostEnabled: false
         ),
         mappings: [
             .leftTrigger: ControllerActionMapping(actionType: .leftMouseHold, triggerMode: .holdWhilePressed),
@@ -345,7 +464,11 @@ extension ControllerProfile {
                 triggerMode: .holdWhilePressed
             ),
             .rightShoulder: ControllerActionMapping(actionType: .rightClick, triggerMode: .tap),
-            .buttonSouth: ControllerActionMapping(actionType: .leftClick, triggerMode: .tap),
+            .buttonSouth: ControllerActionMapping(
+                actionType: .leftClick,
+                shortcut: ShortcutDescriptor(keyCode: 36, modifiers: []),
+                triggerMode: .tap
+            ),
             .buttonEast: ControllerActionMapping(
                 actionType: .keyboardShortcut,
                 shortcut: ShortcutDescriptor(keyCode: 21, modifiers: [.control, .shift, .command]),
@@ -375,10 +498,31 @@ extension ControllerProfile {
                 shortcut: ShortcutDescriptor(keyCode: 51, modifiers: []),
                 triggerMode: .tap
             ),
+            .menu: ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 17, modifiers: [.command]),
+                triggerMode: .tap
+            ),
             .options: ControllerActionMapping(
                 actionType: .keyboardShortcut,
-                shortcut: nil,
+                shortcut: ShortcutDescriptor(keyCode: 8, modifiers: [.command]),
                 triggerMode: .tap
+            ),
+            .home: ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 13, modifiers: [.command]),
+                triggerMode: .tap
+            ),
+        ],
+        modifierLayers: [
+            ControllerModifierLayer(
+                modifierControl: .leftShoulder,
+                mappings: [
+                    .dpadLeft: ControllerActionMapping(actionType: .crossEdgeLeft),
+                    .dpadRight: ControllerActionMapping(actionType: .crossEdgeRight),
+                    .dpadUp: ControllerActionMapping(actionType: .crossEdgeUp),
+                    .dpadDown: ControllerActionMapping(actionType: .crossEdgeDown),
+                ]
             ),
         ]
     )
@@ -386,7 +530,7 @@ extension ControllerProfile {
 
 extension ProfileDocument {
     static let defaultDocument = ProfileDocument(
-        version: 1,
+        version: 2,
         profiles: [.gabesDefaults],
         activeProfileId: ControllerProfile.gabesDefaults.id
     )

@@ -99,7 +99,7 @@ Fresh installs start with the bundled **Gabe's Defaults** profile:
 | Left stick | Primary cursor | Approximately 2228 px/s |
 | Right stick | Precision cursor | Approximately 566 px/s |
 | LT | Left mouse hold | Hold while moving the cursor to drag |
-| LB | Escape | Sends `Esc` |
+| LB | Escape / modifier | Tap for `Esc`; hold with a D-pad direction to cross the matching Universal Control edge |
 | RT | Voice dictation | Holds the `Fn` key; configure macOS Dictation to use the Fn shortcut if needed |
 | RB | Right click | Standard secondary click |
 | A | Left click | Standard primary click |
@@ -110,10 +110,11 @@ Fresh installs start with the bundled **Gabe's Defaults** profile:
 | D-pad left/right | Switch Space | Moves one macOS Space left or right |
 | L3 | Return | Sends the Return key |
 | R3 | Delete | Sends backward Delete |
-| View | Unassigned shortcut | Ready for a custom keyboard shortcut |
-| Menu / Home | No action | Available for custom mappings |
+| View | Copy | Sends `⌘C` |
+| Menu | New tab | Sends `⌘T` |
+| Home | Close tab or window | Sends `⌘W`; disable any competing Home-button action in macOS Game Controller settings |
 
-The cursor profile also enables acceleration with a `0.12` dead zone, `1.8` response curve, `0.5` smoothing, and neutral axis multipliers.
+The cursor profile enables acceleration with a `0.12` dead zone, `1.8` response curve, `0.5` smoothing, neutral axis multipliers, and flick boost disabled.
 
 ### Recommended OCR companion
 
@@ -134,9 +135,24 @@ Click a button, trigger, stick-click control, or D-pad direction on the controll
 - Left-button drag
 - Vertical and horizontal scrolling
 - Space switching
+- One-tap Universal Control edge crossing
 - Primary/precision cursor-speed toggling
 
 Stick roles are configured separately by clicking either stick. Shortcut assignments and cursor settings are persisted automatically.
+
+### Modifier layers
+
+Modifier layers let one controller button expose a second set of actions without replacing its normal tap action. In **Controller Map**, choose **Add Modifier**, select a control such as LB, and then switch the Layer picker to **LB held**. Click any other control to save an override for that combination.
+
+- Tap the modifier by itself to run its normal Default action.
+- Hold the modifier and press a control with an override to run the alternate action.
+- Controls without an override continue using their Default action.
+- Choose **Use Default** in an override editor to remove that override.
+- Saving **None** as an override intentionally suppresses that control while the modifier is held.
+
+Modifier combinations are resolved on the controller-connected Mac before the resulting mouse or keyboard input is sent. They therefore continue to work through native Universal Control without installing Vibe Controller on the other Macs.
+
+For example, add an **LB** modifier layer and map **LB + D-pad Left/Right/Up/Down** to the matching **Cross Edge** actions. Each action sends a brief, fast virtual-mouse sweep through the chosen Universal Control edge; the other Mac does not need Vibe Controller installed.
 
 ## Optional two-Mac companion mode
 

@@ -5,15 +5,31 @@ struct MappingSheetView: View {
     @EnvironmentObject private var appModel: AppModel
 
     let control: ControllerControlID
+    let layer: ControllerMappingLayer
 
     @State private var mapping = ControllerActionMapping()
     @State private var isCapturingShortcut = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(control.displayName)
+            Text(title)
                 .font(.title2.weight(.semibold))
-            Text("Current mapping: \(appModel.mappingSummary(for: control))")
+            if case .modifier(let modifierControl) = layer {
+                HStack(spacing: 8) {
+                    Label(
+                        "While holding \(modifierControl.displayName)",
+                        systemImage: "square.3.layers.3d"
+                    )
+                    .font(.subheadline.weight(.medium))
+                    if !appModel.hasMappingOverride(for: control, in: layer) {
+                        Text("Uses Default until you save an override")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Text("Current mapping: \(appModel.mapping(for: control, in: layer).summary)")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             Form {
@@ -26,6 +42,16 @@ struct MappingSheetView: View {
                     if !newValue.supportedTriggerModes.contains(mapping.triggerMode) {
                         mapping.triggerMode = newValue.defaultTriggerMode
                     }
+                }
+
+                if mapping.actionType.crossEdgeDirection != nil {
+                    Label(
+                        "Sends a short virtual-mouse sweep through this Universal Control edge. Virtual Hardware Support must be ready.",
+                        systemImage: "rectangle.connected.to.line.below"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if mapping.actionType == .keyboardShortcut {
@@ -126,23 +152,49 @@ struct MappingSheetView: View {
             .formStyle(.grouped)
 
             HStack {
+                if appModel.hasMappingOverride(for: control, in: layer) {
+                    Button("Use Default") {
+                        appModel.clearMappingOverride(for: control, in: layer)
+                        dismiss()
+                    }
+                    .frame(minHeight: 40)
+                }
                 Spacer()
                 Button("Cancel") {
                     dismiss()
                 }
-                Button("Save") {
-                    appModel.saveMapping(mapping, for: control)
+                .frame(minHeight: 40)
+                Button(saveButtonTitle) {
+                    appModel.saveMapping(mapping, for: control, in: layer)
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
+                .frame(minHeight: 40)
                 .disabled(!canSave)
             }
+            .controlSize(.large)
         }
         .padding(24)
-        .frame(width: 520)
+        .frame(width: 560)
         .onAppear {
-            mapping = appModel.mapping(for: control)
+            mapping = appModel.mapping(for: control, in: layer)
         }
+    }
+
+    private var title: String {
+        switch layer {
+        case .base:
+            return control.displayName
+        case .modifier(let modifierControl):
+            return "\(modifierControl.displayName) + \(control.displayName)"
+        }
+    }
+
+    private var saveButtonTitle: String {
+        if case .modifier = layer {
+            return "Save Override"
+        }
+        return "Save"
     }
 
     private var canSave: Bool {
@@ -159,7 +211,11 @@ struct MappingSheetView: View {
 
     private var duplicateWarning: String? {
         guard let shortcut = mapping.shortcut else { return nil }
-        let duplicates = appModel.duplicateAssignments(for: shortcut, excluding: control)
+        let duplicates = appModel.duplicateAssignments(
+            for: shortcut,
+            excluding: control,
+            in: layer
+        )
         guard !duplicates.isEmpty else { return nil }
         let names = duplicates.map(\.displayName).joined(separator: ", ")
         return "This shortcut is already used by \(names)."

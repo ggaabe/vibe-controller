@@ -38,8 +38,8 @@ struct MainWindowView: View {
         )
         .sheet(item: $appModel.presentedSheet) { selection in
             switch selection {
-            case .mapping(let control):
-                MappingSheetView(control: control)
+            case .mapping(let control, let layer):
+                MappingSheetView(control: control, layer: layer)
                     .environmentObject(appModel)
             case .stick(let side):
                 StickRoleSheetView(stickSide: side)
