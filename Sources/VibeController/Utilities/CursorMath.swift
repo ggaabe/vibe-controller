@@ -5,7 +5,11 @@ enum CursorMath {
     static let referenceFrameDuration = 1.0 / 120.0
     static let maximumCatchUpDuration = 0.1
     static let maximumFlickBoost = 2.0
-    static let flickBoostDecayDuration = 0.45
+    static let flickBoostDecayDuration = 2.0
+    static let flickSweepStartMagnitude = 0.25
+    static let flickFullThrowMagnitude = 0.92
+    static let flickActivationDuration = 0.065
+    static let flickFullBoostDuration = 0.04
 
     static func adjustedVector(
         x: Double,
@@ -48,27 +52,19 @@ enum CursorMath {
     }
 
     static func flickBoostMultiplier(
-        previous: SIMD2<Double>,
-        current: SIMD2<Double>,
-        elapsedTime: Double,
-        minimumMagnitude: Double = 0.7,
-        activationSpeed: Double = 3.5,
-        fullBoostSpeed: Double = 10.0,
+        sweepDuration: Double,
+        activationDuration: Double = flickActivationDuration,
+        fullBoostDuration: Double = flickFullBoostDuration,
         maximumMultiplier: Double = maximumFlickBoost
     ) -> Double {
-        let currentMagnitude = simd_length(current)
-        guard elapsedTime > 0,
-              currentMagnitude >= minimumMagnitude,
-              fullBoostSpeed > activationSpeed,
+        guard sweepDuration >= 0,
+              activationDuration > fullBoostDuration,
               maximumMultiplier > 1 else {
             return 1
         }
 
-        // Only reward movement outward in the stick's current direction. This
-        // rejects edge jitter, circular movement, and releasing toward center.
-        let outwardSpeed = simd_dot(current - previous, current / currentMagnitude) / elapsedTime
         let normalizedSpeed = min(
-            max((outwardSpeed - activationSpeed) / (fullBoostSpeed - activationSpeed), 0),
+            max((activationDuration - sweepDuration) / (activationDuration - fullBoostDuration), 0),
             1
         )
         return 1 + (normalizedSpeed * (maximumMultiplier - 1))
@@ -98,5 +94,50 @@ enum CursorMath {
         let frameCount = max(0, elapsedTime / referenceFrameDuration)
         let alpha = 1.0 - pow(1.0 - baseAlpha, frameCount)
         return current + ((target - current) * alpha)
+    }
+}
+
+struct FlickBoostTracker: Sendable {
+    private enum State: Sendable {
+        case waitingForCenter
+        case armed
+        case tracking(startedAt: Double)
+        case disarmed
+    }
+
+    private var state: State = .waitingForCenter
+
+    mutating func reset() {
+        state = .waitingForCenter
+    }
+
+    mutating func update(vector: SIMD2<Double>, at currentTime: Double) -> Double {
+        let magnitude = simd_length(vector)
+        if magnitude <= CursorMath.flickSweepStartMagnitude {
+            state = .armed
+            return 1
+        }
+
+        switch state {
+        case .waitingForCenter, .disarmed:
+            return 1
+        case .armed:
+            if magnitude >= CursorMath.flickFullThrowMagnitude {
+                state = .disarmed
+                return CursorMath.maximumFlickBoost
+            }
+            state = .tracking(startedAt: currentTime)
+            return 1
+        case let .tracking(startedAt):
+            let sweepDuration = max(0, currentTime - startedAt)
+            guard sweepDuration <= CursorMath.flickActivationDuration else {
+                state = .disarmed
+                return 1
+            }
+            guard magnitude >= CursorMath.flickFullThrowMagnitude else { return 1 }
+
+            state = .disarmed
+            return CursorMath.flickBoostMultiplier(sweepDuration: sweepDuration)
+        }
     }
 }

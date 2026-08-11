@@ -56,58 +56,69 @@ final class CursorMathTests: XCTestCase {
         XCTAssertEqual(at120Hz.y, at60Hz.y, accuracy: 0.000_001)
     }
 
-    func testFastOutwardStickFlickReachesMaximumBoost() {
-        let boost = CursorMath.flickBoostMultiplier(
-            previous: .zero,
-            current: SIMD2<Double>(1, 0),
-            elapsedTime: 0.08
-        )
-
-        XCTAssertEqual(boost, 2, accuracy: 0.000_001)
-    }
-
-    func testQuickOutwardStickFlickAddsPartialBoost() {
-        let boost = CursorMath.flickBoostMultiplier(
-            previous: .zero,
-            current: SIMD2<Double>(1, 0),
-            elapsedTime: 0.15
-        )
-
-        XCTAssertGreaterThan(boost, 1.4)
-        XCTAssertLessThan(boost, 1.6)
-    }
-
-    func testSlowOrInwardStickMovementDoesNotBoost() {
+    func testVeryFastSweepReachesMaximumBoost() {
         XCTAssertEqual(
-            CursorMath.flickBoostMultiplier(
-                previous: .zero,
-                current: SIMD2<Double>(1, 0),
-                elapsedTime: 0.5
-            ),
-            1
-        )
-        XCTAssertEqual(
-            CursorMath.flickBoostMultiplier(
-                previous: SIMD2<Double>(1, 0),
-                current: SIMD2<Double>(0.75, 0),
-                elapsedTime: 0.02
-            ),
-            1
+            CursorMath.flickBoostMultiplier(sweepDuration: 0.04),
+            2,
+            accuracy: 0.000_001
         )
     }
 
-    func testFlickBoostRequiresStickNearEdge() {
-        let boost = CursorMath.flickBoostMultiplier(
-            previous: .zero,
-            current: SIMD2<Double>(0.5, 0),
-            elapsedTime: 0.02
-        )
+    func testBorderlineSweepAddsOnlyPartialBoost() {
+        let boost = CursorMath.flickBoostMultiplier(sweepDuration: 0.055)
+        XCTAssertGreaterThan(boost, 1.3)
+        XCTAssertLessThan(boost, 1.5)
+    }
 
-        XCTAssertEqual(boost, 1)
+    func testSlowSweepDoesNotBoost() {
+        XCTAssertEqual(CursorMath.flickBoostMultiplier(sweepDuration: 0.08), 1)
+    }
+
+    func testTrackerRequiresCenterBeforeFlick() {
+        var tracker = FlickBoostTracker()
+        XCTAssertEqual(tracker.update(vector: SIMD2<Double>(1, 0), at: 0), 1)
+
+        XCTAssertEqual(tracker.update(vector: .zero, at: 1), 1)
+        XCTAssertEqual(tracker.update(vector: SIMD2<Double>(0.4, 0), at: 1.01), 1)
+        XCTAssertEqual(tracker.update(vector: SIMD2<Double>(1, 0), at: 1.04), 2)
+    }
+
+    func testTrackerTreatsCardinalAndDiagonalSweepsEqually() {
+        var cardinalTracker = FlickBoostTracker()
+        XCTAssertEqual(cardinalTracker.update(vector: .zero, at: 0), 1)
+        XCTAssertEqual(cardinalTracker.update(vector: SIMD2<Double>(0.4, 0), at: 0.01), 1)
+        let cardinalBoost = cardinalTracker.update(vector: SIMD2<Double>(0.93, 0), at: 0.06)
+
+        var diagonalTracker = FlickBoostTracker()
+        XCTAssertEqual(diagonalTracker.update(vector: .zero, at: 0), 1)
+        XCTAssertEqual(diagonalTracker.update(vector: SIMD2<Double>(0.3, 0.3), at: 0.01), 1)
+        let diagonalBoost = diagonalTracker.update(vector: SIMD2<Double>(0.66, 0.66), at: 0.06)
+
+        XCTAssertEqual(cardinalBoost, diagonalBoost, accuracy: 0.000_001)
+        XCTAssertGreaterThan(cardinalBoost, 1)
+    }
+
+    func testTrackerDoesNotRetriggerFromOuterRingJitter() {
+        var tracker = FlickBoostTracker()
+        XCTAssertEqual(tracker.update(vector: .zero, at: 0), 1)
+        XCTAssertEqual(tracker.update(vector: SIMD2<Double>(0.4, 0), at: 0.01), 1)
+        XCTAssertGreaterThan(tracker.update(vector: SIMD2<Double>(1, 0), at: 0.05), 1)
+
+        XCTAssertEqual(tracker.update(vector: SIMD2<Double>(0.65, 0.65), at: 0.06), 1)
+        XCTAssertEqual(tracker.update(vector: SIMD2<Double>(0.7, 0.7), at: 0.07), 1)
+        XCTAssertEqual(tracker.update(vector: SIMD2<Double>(0, 1), at: 0.08), 1)
+    }
+
+    func testTrackerDisarmsAContinuousSlowSweep() {
+        var tracker = FlickBoostTracker()
+        XCTAssertEqual(tracker.update(vector: .zero, at: 0), 1)
+        XCTAssertEqual(tracker.update(vector: SIMD2<Double>(0.4, 0), at: 0.01), 1)
+        XCTAssertEqual(tracker.update(vector: SIMD2<Double>(0.7, 0), at: 0.08), 1)
+        XCTAssertEqual(tracker.update(vector: SIMD2<Double>(1, 0), at: 0.09), 1)
     }
 
     func testFlickBoostDecaysBackToNormalSpeed() {
-        XCTAssertEqual(CursorMath.decayedFlickBoost(2, elapsedTime: 0.225), 1.5, accuracy: 0.000_001)
-        XCTAssertEqual(CursorMath.decayedFlickBoost(2, elapsedTime: 0.45), 1, accuracy: 0.000_001)
+        XCTAssertEqual(CursorMath.decayedFlickBoost(2, elapsedTime: 1), 1.5, accuracy: 0.000_001)
+        XCTAssertEqual(CursorMath.decayedFlickBoost(2, elapsedTime: 2), 1, accuracy: 0.000_001)
     }
 }

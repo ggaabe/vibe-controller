@@ -145,7 +145,7 @@ struct ControllerActionMapping: Codable, Hashable, Sendable {
     }
 }
 
-struct CursorConfiguration: Codable, Hashable, Sendable {
+struct CursorConfiguration: Hashable, Sendable {
     var primaryStick: StickAssignment
     var precisionStick: StickAssignment
     var primarySpeed: Double
@@ -160,6 +160,99 @@ struct CursorConfiguration: Codable, Hashable, Sendable {
     var invertPrecisionY: Bool
     var horizontalSpeedMultiplier: Double
     var verticalSpeedMultiplier: Double
+    var flickBoostEnabled: Bool
+
+    init(
+        primaryStick: StickAssignment,
+        precisionStick: StickAssignment,
+        primarySpeed: Double,
+        precisionSpeed: Double,
+        deadZone: Double,
+        responseCurve: Double,
+        smoothing: Double,
+        accelerationEnabled: Bool,
+        invertPrimaryX: Bool,
+        invertPrimaryY: Bool,
+        invertPrecisionX: Bool,
+        invertPrecisionY: Bool,
+        horizontalSpeedMultiplier: Double,
+        verticalSpeedMultiplier: Double,
+        flickBoostEnabled: Bool = true
+    ) {
+        self.primaryStick = primaryStick
+        self.precisionStick = precisionStick
+        self.primarySpeed = primarySpeed
+        self.precisionSpeed = precisionSpeed
+        self.deadZone = deadZone
+        self.responseCurve = responseCurve
+        self.smoothing = smoothing
+        self.accelerationEnabled = accelerationEnabled
+        self.invertPrimaryX = invertPrimaryX
+        self.invertPrimaryY = invertPrimaryY
+        self.invertPrecisionX = invertPrecisionX
+        self.invertPrecisionY = invertPrecisionY
+        self.horizontalSpeedMultiplier = horizontalSpeedMultiplier
+        self.verticalSpeedMultiplier = verticalSpeedMultiplier
+        self.flickBoostEnabled = flickBoostEnabled
+    }
+}
+
+extension CursorConfiguration: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case primaryStick
+        case precisionStick
+        case primarySpeed
+        case precisionSpeed
+        case deadZone
+        case responseCurve
+        case smoothing
+        case accelerationEnabled
+        case invertPrimaryX
+        case invertPrimaryY
+        case invertPrecisionX
+        case invertPrecisionY
+        case horizontalSpeedMultiplier
+        case verticalSpeedMultiplier
+        case flickBoostEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        primaryStick = try container.decode(StickAssignment.self, forKey: .primaryStick)
+        precisionStick = try container.decode(StickAssignment.self, forKey: .precisionStick)
+        primarySpeed = try container.decode(Double.self, forKey: .primarySpeed)
+        precisionSpeed = try container.decode(Double.self, forKey: .precisionSpeed)
+        deadZone = try container.decode(Double.self, forKey: .deadZone)
+        responseCurve = try container.decode(Double.self, forKey: .responseCurve)
+        smoothing = try container.decode(Double.self, forKey: .smoothing)
+        accelerationEnabled = try container.decode(Bool.self, forKey: .accelerationEnabled)
+        invertPrimaryX = try container.decode(Bool.self, forKey: .invertPrimaryX)
+        invertPrimaryY = try container.decode(Bool.self, forKey: .invertPrimaryY)
+        invertPrecisionX = try container.decode(Bool.self, forKey: .invertPrecisionX)
+        invertPrecisionY = try container.decode(Bool.self, forKey: .invertPrecisionY)
+        horizontalSpeedMultiplier = try container.decode(Double.self, forKey: .horizontalSpeedMultiplier)
+        verticalSpeedMultiplier = try container.decode(Double.self, forKey: .verticalSpeedMultiplier)
+        flickBoostEnabled = try container.decodeIfPresent(Bool.self, forKey: .flickBoostEnabled) ?? true
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(primaryStick, forKey: .primaryStick)
+        try container.encode(precisionStick, forKey: .precisionStick)
+        try container.encode(primarySpeed, forKey: .primarySpeed)
+        try container.encode(precisionSpeed, forKey: .precisionSpeed)
+        try container.encode(deadZone, forKey: .deadZone)
+        try container.encode(responseCurve, forKey: .responseCurve)
+        try container.encode(smoothing, forKey: .smoothing)
+        try container.encode(accelerationEnabled, forKey: .accelerationEnabled)
+        try container.encode(invertPrimaryX, forKey: .invertPrimaryX)
+        try container.encode(invertPrimaryY, forKey: .invertPrimaryY)
+        try container.encode(invertPrecisionX, forKey: .invertPrecisionX)
+        try container.encode(invertPrecisionY, forKey: .invertPrecisionY)
+        try container.encode(horizontalSpeedMultiplier, forKey: .horizontalSpeedMultiplier)
+        try container.encode(verticalSpeedMultiplier, forKey: .verticalSpeedMultiplier)
+        try container.encode(flickBoostEnabled, forKey: .flickBoostEnabled)
+    }
 }
 
 struct ControllerProfile: Identifiable, Hashable, Sendable {
@@ -236,7 +329,8 @@ extension ControllerProfile {
             invertPrecisionX: false,
             invertPrecisionY: false,
             horizontalSpeedMultiplier: 1.0,
-            verticalSpeedMultiplier: 1.0
+            verticalSpeedMultiplier: 1.0,
+            flickBoostEnabled: true
         ),
         mappings: [
             .leftTrigger: ControllerActionMapping(actionType: .leftMouseHold, triggerMode: .holdWhilePressed),

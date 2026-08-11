@@ -30,6 +30,19 @@ struct CursorSettingsView: View {
                 formatter: { "\(Int($0.rounded())) px/s" }
             )
 
+            Toggle(isOn: appModel.cursorBinding(\.flickBoostEnabled)) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Flick boost")
+                    Text("Adds speed after a very fast full-stick flick.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .frame(minHeight: 40)
+            .accessibilityHint("Temporarily increases primary cursor speed after a very fast full-stick sweep.")
+
             SliderSettingRow(
                 title: "Precision speed",
                 value: appModel.cursorBinding(\.precisionSpeed),

@@ -194,9 +194,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
     private var cursorConfiguration = ControllerProfile.gabesDefaults.cursor
     private var smoothedVelocity = SIMD2<Double>.zero
     private var primaryFlickBoost = 1.0
-    private var previousPrimaryStick = SIMD2<Double>.zero
-    private var previousPrimaryStickTime = 0.0
-    private var hasPrimaryStickHistory = false
+    private var primaryFlickTracker = FlickBoostTracker()
     private var lastKnownCursorPosition: CGPoint?
     private var lastSyntheticCursorUpdateTime = 0.0
     private var enabled = true
@@ -280,6 +278,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
             guard let self else { return }
             self.cursorConfiguration = configuration
             self.resetFlickState()
+            self.recordPrimaryStickChange(at: ProcessInfo.processInfo.systemUptime)
         }
     }
 
@@ -313,6 +312,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
             leftStick = StickSnapshot()
             rightStick = StickSnapshot()
             resetFlickState()
+            recordPrimaryStickChange(at: ProcessInfo.processInfo.systemUptime)
             lastTickTime = ProcessInfo.processInfo.systemUptime
         }
     }
@@ -529,6 +529,10 @@ private final class CursorMotionLoop: @unchecked Sendable {
     }
 
     private func recordPrimaryStickChange(at currentTime: Double) {
+        guard cursorConfiguration.flickBoostEnabled else {
+            resetFlickState()
+            return
+        }
         guard let stickSide = cursorConfiguration.primaryStick.stickSide else {
             resetFlickState()
             return
@@ -536,33 +540,16 @@ private final class CursorMotionLoop: @unchecked Sendable {
 
         let stick = stickSide == .left ? leftStick : rightStick
         let current = SIMD2<Double>(stick.x, stick.y)
-        guard hasPrimaryStickHistory else {
-            previousPrimaryStick = current
-            previousPrimaryStickTime = currentTime
-            hasPrimaryStickHistory = true
-            return
-        }
-        guard current != previousPrimaryStick else { return }
-
         if simd_length(current) <= cursorConfiguration.deadZone {
             primaryFlickBoost = 1
-        } else {
-            let detectedBoost = CursorMath.flickBoostMultiplier(
-                previous: previousPrimaryStick,
-                current: current,
-                elapsedTime: currentTime - previousPrimaryStickTime
-            )
-            primaryFlickBoost = max(primaryFlickBoost, detectedBoost)
         }
-        previousPrimaryStick = current
-        previousPrimaryStickTime = currentTime
+        let detectedBoost = primaryFlickTracker.update(vector: current, at: currentTime)
+        primaryFlickBoost = max(primaryFlickBoost, detectedBoost)
     }
 
     private func resetFlickState() {
         primaryFlickBoost = 1
-        previousPrimaryStick = .zero
-        previousPrimaryStickTime = 0
-        hasPrimaryStickHistory = false
+        primaryFlickTracker.reset()
     }
 
     private func moveCursor(by delta: SIMD2<Double>, allowInterception: Bool) {

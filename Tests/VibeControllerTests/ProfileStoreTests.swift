@@ -15,6 +15,7 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(document.profiles.first?.mappings[.buttonWest]?.shortcut?.displayString, "⇧⌘2")
         XCTAssertEqual(document.profiles.first?.mappings[.buttonEast]?.shortcut?.displayString, "^⇧⌘4")
         XCTAssertEqual(document.profiles.first?.mappings[.rightTrigger]?.shortcut?.displayString, "fn")
+        XCTAssertEqual(document.profiles.first?.cursor.flickBoostEnabled, true)
     }
 
     func testImportProfileRenamesDuplicateIdentifiers() throws {
@@ -33,5 +34,43 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(merged.profiles.count, 2)
         XCTAssertEqual(merged.profiles[1].id, "gabes-defaults-2")
         XCTAssertEqual(merged.activeProfileId, "gabes-defaults-2")
+    }
+
+    func testLegacyCursorConfigurationDefaultsFlickBoostOn() throws {
+        let legacyJSON = """
+        {
+          "primaryStick": "left",
+          "precisionStick": "right",
+          "primarySpeed": 2200,
+          "precisionSpeed": 560,
+          "deadZone": 0.12,
+          "responseCurve": 1.8,
+          "smoothing": 0.5,
+          "accelerationEnabled": true,
+          "invertPrimaryX": false,
+          "invertPrimaryY": false,
+          "invertPrecisionX": false,
+          "invertPrecisionY": false,
+          "horizontalSpeedMultiplier": 1,
+          "verticalSpeedMultiplier": 1
+        }
+        """
+
+        let configuration = try JSONDecoder().decode(
+            CursorConfiguration.self,
+            from: Data(legacyJSON.utf8)
+        )
+
+        XCTAssertTrue(configuration.flickBoostEnabled)
+    }
+
+    func testCursorConfigurationPersistsDisabledFlickBoost() throws {
+        var configuration = ControllerProfile.gabesDefaults.cursor
+        configuration.flickBoostEnabled = false
+
+        let data = try JSONEncoder().encode(configuration)
+        let decoded = try JSONDecoder().decode(CursorConfiguration.self, from: data)
+
+        XCTAssertFalse(decoded.flickBoostEnabled)
     }
 }
