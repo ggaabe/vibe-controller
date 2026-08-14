@@ -11,6 +11,7 @@ struct ControllerSnapshot: Equatable, Sendable {
     var isConnected: Bool
     var controllerName: String?
     var connectionSummary: String?
+    var controllerFamily: ControllerFamily = .generic
     var batteryLevel: Float?
     var batteryStateDescription: String?
     var pressedControls: Set<ControllerControlID>
@@ -23,6 +24,7 @@ struct ControllerSnapshot: Equatable, Sendable {
         isConnected: false,
         controllerName: nil,
         connectionSummary: nil,
+        controllerFamily: .generic,
         batteryLevel: nil,
         batteryStateDescription: nil,
         pressedControls: [],
@@ -77,8 +79,12 @@ final class ControllerManager: ObservableObject {
         GCController.shouldMonitorBackgroundEvents = true
         registerNotifications()
 
-        xboxUSBReader.onConnectionChanged = { [weak self, weak inputRelay] isConnected, name in
-            inputRelay?.setRawUSBConnection(isConnected: isConnected, name: name)
+        xboxUSBReader.onConnectionChanged = { [weak self, weak inputRelay] isConnected, name, family in
+            inputRelay?.setRawUSBConnection(
+                isConnected: isConnected,
+                name: name,
+                family: family
+            )
             if !isConnected {
                 Task { @MainActor [weak self] in
                     self?.refreshConnectedController()
@@ -132,6 +138,7 @@ final class ControllerManager: ObservableObject {
 
     private func attach(controller: GCController) {
         connectedController = controller
+        Self.claimOptionalControllerButtons(on: controller.extendedGamepad)
         Self.installInputHandler(
             on: controller,
             inputQueue: inputQueue,
@@ -176,6 +183,19 @@ final class ControllerManager: ObservableObject {
             guard let controller,
                   let snapshot = makeSnapshot(from: controller) else { return }
             inputRelay.receiveGameController(snapshot)
+        }
+    }
+
+    nonisolated private static func claimOptionalControllerButtons(on gamepad: GCExtendedGamepad?) {
+        guard let gamepad else { return }
+        gamepad.buttonHome?.preferredSystemGestureState = .disabled
+        gamepad.buttonOptions?.preferredSystemGestureState = .disabled
+        gamepad.buttonMenu.preferredSystemGestureState = .disabled
+
+        if let dualSense = gamepad as? GCDualSenseGamepad {
+            dualSense.touchpadButton.preferredSystemGestureState = .disabled
+        } else if let dualShock = gamepad as? GCDualShockGamepad {
+            dualShock.touchpadButton.preferredSystemGestureState = .disabled
         }
     }
 
@@ -241,6 +261,11 @@ final class ControllerManager: ObservableObject {
         capture(.menu, input: gamepad.buttonMenu)
         capture(.options, input: gamepad.buttonOptions)
         capture(.home, input: gamepad.buttonHome)
+        if let dualSense = gamepad as? GCDualSenseGamepad {
+            capture(.touchpadButton, input: dualSense.touchpadButton)
+        } else if let dualShock = gamepad as? GCDualShockGamepad {
+            capture(.touchpadButton, input: dualShock.touchpadButton)
+        }
 
         values[.dpadUp] = Double(gamepad.dpad.up.value)
         values[.dpadDown] = Double(gamepad.dpad.down.value)
@@ -265,10 +290,19 @@ final class ControllerManager: ObservableObject {
         values[.rightThumbstick] = min(1, hypot(rightStick.x, rightStick.y))
 
         let battery = controller.battery
+        let family: ControllerFamily
+        if gamepad is GCDualSenseGamepad || gamepad is GCDualShockGamepad {
+            family = .playStation
+        } else if gamepad is GCXboxGamepad {
+            family = .xbox
+        } else {
+            family = .inferred(from: controller.vendorName)
+        }
         return ControllerSnapshot(
             isConnected: true,
             controllerName: controller.vendorName,
             connectionSummary: controller.isAttachedToDevice ? "Attached" : nil,
+            controllerFamily: family,
             batteryLevel: battery?.batteryLevel,
             batteryStateDescription: battery?.batteryState.vibeDescription,
             pressedControls: pressed,

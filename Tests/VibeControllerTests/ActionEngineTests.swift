@@ -46,6 +46,65 @@ final class ActionEngineTests: XCTestCase {
         assertShortcut(recorder.events[0], equals: alternateShortcut, phase: .tap)
     }
 
+    func testDuplicateTapChatterIsSuppressedForModifierShortcut() {
+        let recorder = ActionEventRecorder()
+        var now: TimeInterval = 100
+        let actionEngine = makeActionEngine(recorder: recorder, currentTime: { now })
+        let period = ShortcutDescriptor(keyCode: 47, modifiers: [])
+        let profile = profileWithLeftShoulderLayer(overrides: [
+            .buttonWest: ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: period,
+                triggerMode: .tap
+            ),
+        ])
+
+        actionEngine.process(
+            snapshot: snapshot(pressed: [.leftShoulder, .buttonWest]),
+            profile: profile
+        )
+        actionEngine.process(
+            snapshot: snapshot(pressed: [.leftShoulder]),
+            profile: profile
+        )
+        now += 0.02
+        actionEngine.process(
+            snapshot: snapshot(pressed: [.leftShoulder, .buttonWest]),
+            profile: profile
+        )
+
+        XCTAssertEqual(recorder.events.count, 1)
+        assertShortcut(recorder.events[0], equals: period, phase: .tap)
+    }
+
+    func testIntentionalTapAfterDebounceWindowStillFires() {
+        let recorder = ActionEventRecorder()
+        var now: TimeInterval = 100
+        let actionEngine = makeActionEngine(recorder: recorder, currentTime: { now })
+        var profile = ControllerProfile.gabesDefaults
+        let backspace = ShortcutDescriptor(keyCode: 51, modifiers: [])
+        profile.mappings[.rightThumbstickButton] = ControllerActionMapping(
+            actionType: .keyboardShortcut,
+            shortcut: backspace,
+            triggerMode: .tap
+        )
+
+        actionEngine.process(
+            snapshot: snapshot(pressed: [.rightThumbstickButton]),
+            profile: profile
+        )
+        actionEngine.process(snapshot: snapshot(pressed: []), profile: profile)
+        now += 0.1
+        actionEngine.process(
+            snapshot: snapshot(pressed: [.rightThumbstickButton]),
+            profile: profile
+        )
+
+        XCTAssertEqual(recorder.events.count, 2)
+        assertShortcut(recorder.events[0], equals: backspace, phase: .tap)
+        assertShortcut(recorder.events[1], equals: backspace, phase: .tap)
+    }
+
     func testUnconfiguredModifierCombinationFallsBackToDefaultAction() {
         let recorder = ActionEventRecorder()
         let actionEngine = makeActionEngine(recorder: recorder)
@@ -253,8 +312,14 @@ final class ActionEngineTests: XCTestCase {
         actionEngine.cancelAll()
     }
 
-    private func makeActionEngine(recorder: ActionEventRecorder) -> ActionEngine {
-        let actionEngine = ActionEngine(cursorEngine: CursorEngine())
+    private func makeActionEngine(
+        recorder: ActionEventRecorder,
+        currentTime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) -> ActionEngine {
+        let actionEngine = ActionEngine(
+            cursorEngine: CursorEngine(),
+            currentTime: currentTime
+        )
         actionEngine.accessibilityTrusted = true
         actionEngine.companionDispatch = { event in
             recorder.events.append(event)

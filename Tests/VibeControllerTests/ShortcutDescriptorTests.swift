@@ -10,6 +10,27 @@ final class ShortcutDescriptorTests: XCTestCase {
     func testModifierOnlyShortcutIsRejected() {
         let shortcut = ShortcutDescriptor(keyCode: 55, modifiers: [.command])
         XCTAssertTrue(shortcut.isModifierOnly)
+        XCTAssertFalse(shortcut.isAssignable)
+    }
+
+    func testLeftAndRightCommandChordIsAssignableAndClearlyLabeled() {
+        let shortcut = ShortcutDescriptor.leftRightModifierChord(.command)
+
+        XCTAssertTrue(shortcut.isModifierOnly)
+        XCTAssertTrue(shortcut.isSupportedModifierChord)
+        XCTAssertTrue(shortcut.isAssignable)
+        XCTAssertEqual(shortcut.keyCode, 54)
+        XCTAssertEqual(shortcut.modifiers, [.command])
+        XCTAssertEqual(shortcut.displayString, "L⌘ + R⌘")
+    }
+
+    func testLeftAndRightCommandChordCapturesInEitherPressOrder() {
+        let expected = ShortcutDescriptor.leftRightModifierChord(.command)
+
+        XCTAssertEqual(
+            ShortcutDescriptor.leftRightModifierChord(pressedKeyCodes: [55, 54]),
+            expected
+        )
     }
 
     func testFunctionKeyShortcutIsAllowed() {

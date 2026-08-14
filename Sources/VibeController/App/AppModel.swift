@@ -303,7 +303,10 @@ final class AppModel: ObservableObject {
     var liveInputSummary: String {
         let left = controllerSnapshot.leftStick
         let right = controllerSnapshot.rightStick
-        let pressed = controllerSnapshot.pressedControls.map(\.displayName).sorted().joined(separator: ", ")
+        let pressed = controllerSnapshot.pressedControls
+            .map { controlDisplayName($0) }
+            .sorted()
+            .joined(separator: ", ")
         let pressedSummary = pressed.isEmpty ? "none" : pressed
         return String(
             format: "L %.2f %.2f   R %.2f %.2f   Pressed: %@",
@@ -524,9 +527,25 @@ final class AppModel: ObservableObject {
         [.base] + activeProfile.modifierLayers.map { .modifier($0.modifierControl) }
     }
 
+    func controlDisplayName(_ control: ControllerControlID) -> String {
+        control.displayName(for: controllerSnapshot.controllerFamily)
+    }
+
+    func mappingLayerDisplayName(_ layer: ControllerMappingLayer) -> String {
+        switch layer {
+        case .base:
+            return "Default"
+        case .modifier(let control):
+            return "\(controlDisplayName(control)) held"
+        }
+    }
+
     var availableModifierControls: [ControllerControlID] {
         let existing = Set(activeProfile.modifierLayers.map(\.modifierControl))
-        return ControllerControlID.mappingControls.filter { !existing.contains($0) }
+        return ControllerControlID.mappingControls.filter { control in
+            !existing.contains(control) &&
+                (control != .touchpadButton || controllerSnapshot.controllerFamily == .playStation)
+        }
     }
 
     var selectedModifierControl: ControllerControlID? {
@@ -539,7 +558,7 @@ final class AppModel: ObservableObject {
         case .base:
             return "Normal controller actions"
         case .modifier(let control):
-            return "Overrides used while \(control.displayName) is held"
+            return "Overrides used while \(controlDisplayName(control)) is held"
         }
     }
 

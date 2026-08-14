@@ -30,7 +30,7 @@ struct ControllerDiagramView: View {
                     )
                 ) {
                     ForEach(appModel.mappingLayers) { layer in
-                        Text(layer.displayName).tag(layer)
+                        Text(appModel.mappingLayerDisplayName(layer)).tag(layer)
                     }
                 }
                 .labelsHidden()
@@ -39,7 +39,7 @@ struct ControllerDiagramView: View {
 
                 Menu {
                     ForEach(appModel.availableModifierControls) { control in
-                        Button(control.displayName) {
+                        Button(appModel.controlDisplayName(control)) {
                             appModel.addModifierLayer(control)
                         }
                     }
@@ -56,7 +56,7 @@ struct ControllerDiagramView: View {
                         Label("Remove Layer", systemImage: "trash")
                     }
                     .frame(minHeight: 40)
-                    .accessibilityHint("Removes all overrides configured for \(modifierControl.displayName).")
+                    .accessibilityHint("Removes all overrides configured for \(appModel.controlDisplayName(modifierControl)).")
                 }
 
                 Spacer()
@@ -66,7 +66,7 @@ struct ControllerDiagramView: View {
                         .font(.footnote.weight(.medium))
                         .foregroundStyle(.secondary)
                     if let modifierControl = appModel.selectedModifierControl {
-                        Text("Tap \(modifierControl.displayName) alone to run its Default action.")
+                        Text("Tap \(appModel.controlDisplayName(modifierControl)) alone to run its Default action.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -92,14 +92,14 @@ struct ControllerDiagramView: View {
             isPresented: $isConfirmingLayerRemoval
         ) {
             if let modifierControl = appModel.selectedModifierControl {
-                Button("Remove \(modifierControl.displayName) Layer", role: .destructive) {
+                Button("Remove \(appModel.controlDisplayName(modifierControl)) Layer", role: .destructive) {
                     appModel.removeModifierLayer(modifierControl)
                 }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             if let modifierControl = appModel.selectedModifierControl {
-                Text("This removes every shortcut override used while \(modifierControl.displayName) is held.")
+                Text("This removes every shortcut override used while \(appModel.controlDisplayName(modifierControl)) is held.")
             }
         }
     }
@@ -123,6 +123,8 @@ struct ControllerDiagramView: View {
 }
 
 private struct ControllerCanvas: View {
+    @EnvironmentObject private var appModel: AppModel
+
     let canvasColors: [Color]
     let borderColor: Color
 
@@ -161,7 +163,16 @@ private struct ControllerCanvas: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    @ViewBuilder
     private var controllerLayout: some View {
+        if appModel.controllerSnapshot.controllerFamily == .playStation {
+            playStationLayout
+        } else {
+            xboxLayout
+        }
+    }
+
+    private var xboxLayout: some View {
         ZStack(alignment: .topLeading) {
             PositionedNode(x: 500, y: 572) {
                 Ellipse()
@@ -239,6 +250,84 @@ private struct ControllerCanvas: View {
             }
         }
     }
+
+    private var playStationLayout: some View {
+        ZStack(alignment: .topLeading) {
+            PositionedNode(x: 500, y: 572) {
+                Ellipse()
+                    .fill(Color.black.opacity(0.48))
+                    .frame(width: 740, height: 72)
+                    .blur(radius: 22)
+            }
+
+            PositionedNode(x: 500, y: 164) {
+                ControllerBackRidgeShape()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.92), Color(red: 0.48, green: 0.52, blue: 0.60)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .overlay {
+                        ControllerBackRidgeShape()
+                            .stroke(Color.white.opacity(0.40), lineWidth: 1)
+                    }
+                    .frame(width: 640, height: 94)
+            }
+
+            PositionedNode(x: 500, y: 394) {
+                PlayStationControllerShell()
+                    .frame(width: 860, height: 458)
+            }
+
+            PositionedNode(x: 296, y: 61) {
+                HardwareControlButton(control: .leftTrigger, style: .trigger, showsLevel: true)
+            }
+            PositionedNode(x: 704, y: 61) {
+                HardwareControlButton(control: .rightTrigger, style: .trigger, showsLevel: true)
+            }
+            PositionedNode(x: 296, y: 132) {
+                HardwareControlButton(control: .leftShoulder, style: .shoulder)
+            }
+            PositionedNode(x: 704, y: 132) {
+                HardwareControlButton(control: .rightShoulder, style: .shoulder)
+            }
+
+            PositionedNode(x: 500, y: 250) {
+                TouchpadMappedControl()
+            }
+            PositionedNode(x: 384, y: 326) {
+                CompactMappedControl(control: .options, label: "Create", size: 42, showsCaption: false)
+            }
+            PositionedNode(x: 616, y: 326) {
+                CompactMappedControl(control: .menu, label: "Options", size: 42, showsCaption: false)
+            }
+            PositionedNode(x: 500, y: 353) {
+                CompactMappedControl(control: .home, label: "PS", size: 44, showsCaption: false)
+            }
+
+            PositionedNode(x: 298, y: 306) {
+                DPadCluster(showsCaptions: false)
+            }
+            PositionedNode(x: 702, y: 306) {
+                FaceButtonsCluster(showsCaptions: false)
+            }
+
+            PositionedNode(x: 390, y: 470) {
+                StickNode(side: .left)
+            }
+            PositionedNode(x: 308, y: 470) {
+                CompactMappedControl(control: .leftThumbstickButton, label: "L3", showsCaption: false)
+            }
+            PositionedNode(x: 610, y: 470) {
+                StickNode(side: .right)
+            }
+            PositionedNode(x: 692, y: 470) {
+                CompactMappedControl(control: .rightThumbstickButton, label: "R3", showsCaption: false)
+            }
+        }
+    }
 }
 
 private struct PositionedNode<Content: View>: View {
@@ -298,6 +387,61 @@ private struct XboxControllerShell: View {
                 Spacer()
                 GripTexture()
                     .scaleEffect(x: -1, y: 1)
+            }
+            .padding(.horizontal, 72)
+            .padding(.top, 220)
+            .padding(.bottom, 28)
+            .mask(ControllerBodyShape())
+        }
+    }
+}
+
+private struct PlayStationControllerShell: View {
+    var body: some View {
+        ZStack {
+            ControllerBodyShape()
+                .fill(Color.black.opacity(0.68))
+                .offset(y: 15)
+                .shadow(color: .black.opacity(0.44), radius: 18, y: 16)
+
+            ControllerBodyShape()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.90, green: 0.92, blue: 0.96),
+                            Color(red: 0.64, green: 0.68, blue: 0.76),
+                            Color(red: 0.34, green: 0.38, blue: 0.46),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay {
+                    ControllerBodyShape()
+                        .stroke(Color.white.opacity(0.34), lineWidth: 1.2)
+                }
+
+            ControllerTopPlateShape()
+                .fill(
+                    RadialGradient(
+                        colors: [Color(red: 0.20, green: 0.22, blue: 0.27), Color(red: 0.07, green: 0.08, blue: 0.10)],
+                        center: .top,
+                        startRadius: 10,
+                        endRadius: 350
+                    )
+                )
+                .overlay {
+                    ControllerTopPlateShape()
+                        .stroke(Color(red: 0.28, green: 0.62, blue: 1.0).opacity(0.34), lineWidth: 1.2)
+                }
+                .padding(.horizontal, 112)
+                .padding(.top, 24)
+                .padding(.bottom, 42)
+
+            HStack {
+                GripTexture()
+                Spacer()
+                GripTexture().scaleEffect(x: -1, y: 1)
             }
             .padding(.horizontal, 72)
             .padding(.top, 220)
@@ -613,7 +757,7 @@ private struct HardwareControlButton: View {
                 .foregroundStyle(Color.white.opacity(0.92))
         } else if styleShowsInlineMapping {
             VStack(spacing: 2) {
-                Text(label ?? control.displayName)
+                Text(label ?? control.diagramLabel(for: appModel.controllerSnapshot.controllerFamily))
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                 Text(appModel.mappingSummary(for: control))
@@ -625,9 +769,12 @@ private struct HardwareControlButton: View {
             .padding(.horizontal, 10)
             .padding(.bottom, showsLevel ? 6 : 0)
         } else {
-            Text(label ?? control.displayName)
+            Text(label ?? control.diagramLabel(for: appModel.controllerSnapshot.controllerFamily))
                 .font(.system(size: styleIsFace ? 17 : 12, weight: .bold, design: .rounded))
                 .foregroundStyle(faceTint ?? Color.white.opacity(0.92))
+                .lineLimit(1)
+                .minimumScaleFactor(0.64)
+                .padding(.horizontal, 3)
         }
     }
 
@@ -691,6 +838,7 @@ private struct CompactMappedControl: View {
     var label: String?
     var symbol: String?
     var size: CGFloat = 46
+    var showsCaption = true
 
     var body: some View {
         VStack(spacing: 5) {
@@ -701,7 +849,53 @@ private struct CompactMappedControl: View {
                 symbol: symbol,
                 sizeOverride: size
             )
-            MappingCaption(text: appModel.mappingSummary(for: control), maxWidth: 104)
+            if showsCaption {
+                MappingCaption(text: appModel.mappingSummary(for: control), maxWidth: 104)
+            }
+        }
+    }
+}
+
+private struct TouchpadMappedControl: View {
+    @EnvironmentObject private var appModel: AppModel
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Button {
+                appModel.presentMapping(for: .touchpadButton)
+            } label: {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(red: 0.25, green: 0.27, blue: 0.32), Color(red: 0.10, green: 0.11, blue: 0.14)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .stroke(
+                                appModel.controllerSnapshot.pressedControls.contains(.touchpadButton)
+                                    ? Color.accentColor
+                                    : Color.white.opacity(0.16),
+                                lineWidth: 1.5
+                            )
+                    }
+                    .overlay {
+                        VStack(spacing: 2) {
+                            Text("Touchpad")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                            Text(appModel.mappingSummary(for: .touchpadButton))
+                                .font(.system(size: 9.5, weight: .medium))
+                                .foregroundStyle(Color.white.opacity(0.62))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(.white)
+                    }
+                    .frame(width: 202, height: 78)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(TactileButtonStyle())
         }
     }
 }
@@ -709,32 +903,63 @@ private struct CompactMappedControl: View {
 private struct FaceButtonsCluster: View {
     @EnvironmentObject private var appModel: AppModel
 
+    var showsCaptions = true
+
     var body: some View {
         ZStack {
-            HardwareControlButton(control: .buttonNorth, style: .face(Color(red: 0.96, green: 0.75, blue: 0.20)))
+            HardwareControlButton(control: .buttonNorth, style: .face(tint(for: .buttonNorth)))
                 .offset(y: -61)
-            HardwareControlButton(control: .buttonWest, style: .face(Color(red: 0.24, green: 0.62, blue: 0.98)))
+            HardwareControlButton(control: .buttonWest, style: .face(tint(for: .buttonWest)))
                 .offset(x: -61)
-            HardwareControlButton(control: .buttonEast, style: .face(Color(red: 0.96, green: 0.33, blue: 0.30)))
+            HardwareControlButton(control: .buttonEast, style: .face(tint(for: .buttonEast)))
                 .offset(x: 61)
-            HardwareControlButton(control: .buttonSouth, style: .face(Color(red: 0.40, green: 0.82, blue: 0.40)))
+            HardwareControlButton(control: .buttonSouth, style: .face(tint(for: .buttonSouth)))
                 .offset(y: 61)
 
-            MappingCaption(text: appModel.mappingSummary(for: .buttonNorth), maxWidth: 106)
-                .offset(y: -105)
-            MappingCaption(text: appModel.mappingSummary(for: .buttonWest), maxWidth: 106)
-                .offset(x: -123)
-            MappingCaption(text: appModel.mappingSummary(for: .buttonEast), maxWidth: 106)
-                .offset(x: 123)
-            MappingCaption(text: appModel.mappingSummary(for: .buttonSouth), maxWidth: 106)
-                .offset(y: 105)
+            if showsCaptions {
+                MappingCaption(text: appModel.mappingSummary(for: .buttonNorth), maxWidth: 106)
+                    .offset(y: -105)
+                MappingCaption(text: appModel.mappingSummary(for: .buttonWest), maxWidth: 106)
+                    .offset(x: -123)
+                MappingCaption(text: appModel.mappingSummary(for: .buttonEast), maxWidth: 106)
+                    .offset(x: 123)
+                MappingCaption(text: appModel.mappingSummary(for: .buttonSouth), maxWidth: 106)
+                    .offset(y: 105)
+            }
         }
         .frame(width: 310, height: 250)
+    }
+
+    private func tint(for control: ControllerControlID) -> Color {
+        if appModel.controllerSnapshot.controllerFamily == .playStation {
+            switch control {
+            case .buttonNorth:
+                return Color(red: 0.35, green: 0.82, blue: 0.58)
+            case .buttonWest:
+                return Color(red: 0.95, green: 0.48, blue: 0.70)
+            case .buttonEast:
+                return Color(red: 0.96, green: 0.36, blue: 0.40)
+            default:
+                return Color(red: 0.38, green: 0.64, blue: 1.0)
+            }
+        }
+        switch control {
+        case .buttonNorth:
+            return Color(red: 0.96, green: 0.75, blue: 0.20)
+        case .buttonWest:
+            return Color(red: 0.24, green: 0.62, blue: 0.98)
+        case .buttonEast:
+            return Color(red: 0.96, green: 0.33, blue: 0.30)
+        default:
+            return Color(red: 0.40, green: 0.82, blue: 0.40)
+        }
     }
 }
 
 private struct DPadCluster: View {
     @EnvironmentObject private var appModel: AppModel
+
+    var showsCaptions = true
 
     var body: some View {
         ZStack {
@@ -757,14 +982,16 @@ private struct DPadCluster: View {
             DPadDirectionButton(control: .dpadRight, symbol: "chevron.right")
                 .offset(x: 50)
 
-            MappingCaption(text: appModel.mappingSummary(for: .dpadUp), maxWidth: 112)
-                .offset(y: -91)
-            MappingCaption(text: appModel.mappingSummary(for: .dpadDown), maxWidth: 112)
-                .offset(y: 91)
-            MappingCaption(text: appModel.mappingSummary(for: .dpadLeft), maxWidth: 106)
-                .offset(x: -111)
-            MappingCaption(text: appModel.mappingSummary(for: .dpadRight), maxWidth: 106)
-                .offset(x: 111)
+            if showsCaptions {
+                MappingCaption(text: appModel.mappingSummary(for: .dpadUp), maxWidth: 112)
+                    .offset(y: -91)
+                MappingCaption(text: appModel.mappingSummary(for: .dpadDown), maxWidth: 112)
+                    .offset(y: 91)
+                MappingCaption(text: appModel.mappingSummary(for: .dpadLeft), maxWidth: 106)
+                    .offset(x: -111)
+                MappingCaption(text: appModel.mappingSummary(for: .dpadRight), maxWidth: 106)
+                    .offset(x: 111)
+            }
         }
         .frame(width: 340, height: 250)
     }

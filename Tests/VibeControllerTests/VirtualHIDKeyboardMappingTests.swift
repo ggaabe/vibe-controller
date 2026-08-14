@@ -23,4 +23,12 @@ final class VirtualHIDKeyboardMappingTests: XCTestCase {
         XCTAssertEqual(UniversalControlInputBridge.modifierKeyBits[59], 0x01)
         XCTAssertEqual(UniversalControlInputBridge.modifierKeyBits[62], 0x10)
     }
+
+    func testLeftAndRightCommandChordProducesBothPhysicalHIDModifierBits() {
+        let shortcut = ShortcutDescriptor.leftRightModifierChord(.command)
+        let leftCommand = UniversalControlInputBridge.hidModifiers(for: [.maskCommand])
+        let rightCommand = UniversalControlInputBridge.modifierKeyBits[shortcut.keyCode]
+
+        XCTAssertEqual(leftCommand | (rightCommand ?? 0), 0x88)
+    }
 }

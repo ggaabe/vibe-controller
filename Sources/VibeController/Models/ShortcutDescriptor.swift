@@ -33,6 +33,23 @@ enum KeyboardModifier: String, Codable, CaseIterable, Hashable, Sendable {
         }
     }
 
+    var rightKeyCode: UInt16 {
+        switch self {
+        case .control:
+            return 62
+        case .option:
+            return 61
+        case .shift:
+            return 60
+        case .command:
+            return 54
+        }
+    }
+
+    var sidedDisplayName: String {
+        "L\(symbol)"
+    }
+
     static let displayOrder: [KeyboardModifier] = [.control, .option, .shift, .command]
 }
 
@@ -57,8 +74,26 @@ struct ShortcutDescriptor: Codable, Hashable, Sendable {
         Self.modifierKeyCodes.contains(keyCode) && !isFunctionKeyShortcut
     }
 
+    /// Modifier-only shortcuts are normally ambiguous, but a matching left +
+    /// right pair has a complete physical representation in the existing
+    /// keyCode + modifiers profile format.
+    var isSupportedModifierChord: Bool {
+        guard let modifier = Self.rightSideModifierByKeyCode[keyCode] else {
+            return false
+        }
+        return orderedModifiers.contains(modifier)
+    }
+
+    var isAssignable: Bool {
+        !isModifierOnly || isSupportedModifierChord
+    }
+
     var displayString: String {
-        orderedModifiers.map(\.symbol).joined() + Self.displayName(for: keyCode)
+        if isSupportedModifierChord,
+           let modifier = Self.rightSideModifierByKeyCode[keyCode] {
+            return "\(modifier.sidedDisplayName) + R\(modifier.symbol)"
+        }
+        return orderedModifiers.map(\.symbol).joined() + Self.displayName(for: keyCode)
     }
 
     var duplicateKey: String {
@@ -74,6 +109,24 @@ struct ShortcutDescriptor: Codable, Hashable, Sendable {
     }
 
     static let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+
+    static func leftRightModifierChord(_ modifier: KeyboardModifier) -> ShortcutDescriptor {
+        ShortcutDescriptor(keyCode: modifier.rightKeyCode, modifiers: [modifier])
+    }
+
+    static func leftRightModifierChord(
+        pressedKeyCodes: Set<UInt16>
+    ) -> ShortcutDescriptor? {
+        for modifier in KeyboardModifier.displayOrder {
+            let leftKeyCode = UInt16(modifier.keyCode)
+            guard pressedKeyCodes.contains(leftKeyCode),
+                  pressedKeyCodes.contains(modifier.rightKeyCode) else {
+                continue
+            }
+            return leftRightModifierChord(modifier)
+        }
+        return nil
+    }
 
     static let functionKeyCodes: [Int: UInt16] = [
         1: 122,
@@ -111,6 +164,13 @@ struct ShortcutDescriptor: Codable, Hashable, Sendable {
             modifiers: [.command],
             warning: "⌘Q usually quits the frontmost app."
         ),
+    ]
+
+    private static let rightSideModifierByKeyCode: [UInt16: KeyboardModifier] = [
+        54: .command,
+        60: .shift,
+        61: .option,
+        62: .control,
     ]
 
     static func normalizeModifiers(_ modifiers: [KeyboardModifier]) -> [KeyboardModifier] {

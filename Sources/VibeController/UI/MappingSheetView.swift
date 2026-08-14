@@ -17,7 +17,7 @@ struct MappingSheetView: View {
             if case .modifier(let modifierControl) = layer {
                 HStack(spacing: 8) {
                     Label(
-                        "While holding \(modifierControl.displayName)",
+                        "While holding \(appModel.controlDisplayName(modifierControl))",
                         systemImage: "square.3.layers.3d"
                     )
                     .font(.subheadline.weight(.medium))
@@ -62,7 +62,7 @@ struct MappingSheetView: View {
                             shortcut: $mapping.shortcut,
                             isCapturing: $isCapturingShortcut
                         )
-                        Text("Click the field and press a shortcut, or use a quick set button for a system-owned key. Use Clear Shortcut to remove a mapping.")
+                        Text("Click the field and press a shortcut. Left/right pairs of Command, Option, Shift, and Control can be recorded together. You can also use a quick set button for a system-owned key.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         Text("Function keys")
@@ -99,6 +99,10 @@ struct MappingSheetView: View {
                                 }
                             }
                             HStack(spacing: 10) {
+                                Button("L⌘ + R⌘") {
+                                    mapping.shortcut = .leftRightModifierChord(.command)
+                                    isCapturingShortcut = false
+                                }
                                 Button("⌘⌃⇧4") {
                                     mapping.shortcut = ShortcutDescriptor(keyCode: 21, modifiers: [.command, .control, .shift])
                                 }
@@ -184,9 +188,9 @@ struct MappingSheetView: View {
     private var title: String {
         switch layer {
         case .base:
-            return control.displayName
+            return appModel.controlDisplayName(control)
         case .modifier(let modifierControl):
-            return "\(modifierControl.displayName) + \(control.displayName)"
+            return "\(appModel.controlDisplayName(modifierControl)) + \(appModel.controlDisplayName(control))"
         }
     }
 
@@ -204,9 +208,11 @@ struct MappingSheetView: View {
     private var validationError: String? {
         guard mapping.actionType == .keyboardShortcut else { return nil }
         guard let shortcut = mapping.shortcut else {
-            return "Shortcut must include a non-modifier key"
+            return "Choose a shortcut"
         }
-        return shortcut.isModifierOnly ? "Shortcut must include a non-modifier key" : nil
+        return shortcut.isAssignable
+            ? nil
+            : "Use a non-modifier key or a matching left/right modifier pair"
     }
 
     private var duplicateWarning: String? {
@@ -217,7 +223,7 @@ struct MappingSheetView: View {
             in: layer
         )
         guard !duplicates.isEmpty else { return nil }
-        let names = duplicates.map(\.displayName).joined(separator: ", ")
+        let names = duplicates.map { appModel.controlDisplayName($0) }.joined(separator: ", ")
         return "This shortcut is already used by \(names)."
     }
 

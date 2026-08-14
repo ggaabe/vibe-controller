@@ -3,6 +3,16 @@ import Foundation
 
 @MainActor
 final class ActionEngine {
+    private struct RecentTap {
+        let mapping: ControllerActionMapping
+        let sourceModifier: ControllerControlID?
+        let timestamp: TimeInterval
+    }
+
+    /// Filters the sub-frame release/press chatter some USB gamepads emit for
+    /// a single physical tap without making normal double-taps feel sluggish.
+    private static let duplicateTapInterval: TimeInterval = 0.08
+
     var isEnabled = true
     var accessibilityTrusted = false
     var suspendActionExecution = false
@@ -12,15 +22,21 @@ final class ActionEngine {
     var companionDispatch: ((CompanionControlEvent) -> Bool)?
 
     private let cursorEngine: CursorEngine
+    private let currentTime: () -> TimeInterval
     private let eventSource = CGEventSource(stateID: .combinedSessionState)
     private var previousPressedControls = Set<ControllerControlID>()
     private var activeStates: [ControllerControlID: ActiveControlState] = [:]
     private var armedModifierControls = Set<ControllerControlID>()
     private var consumedModifierControls = Set<ControllerControlID>()
     private var modifierPressOrder: [ControllerControlID] = []
+    private var recentTaps: [ControllerControlID: RecentTap] = [:]
 
-    init(cursorEngine: CursorEngine) {
+    init(
+        cursorEngine: CursorEngine,
+        currentTime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) {
         self.cursorEngine = cursorEngine
+        self.currentTime = currentTime
     }
 
     func process(snapshot: ControllerSnapshot, profile: ControllerProfile) {
@@ -88,6 +104,7 @@ final class ActionEngine {
         consumedModifierControls.removeAll()
         modifierPressOrder.removeAll()
         previousPressedControls.removeAll()
+        recentTaps.removeAll()
     }
 
     private func isControlActuated(_ control: ControllerControlID, snapshot: ControllerSnapshot) -> Bool {
@@ -125,11 +142,41 @@ final class ActionEngine {
             for: control,
             modifierControl: modifierControl
         )
+        if mapping.triggerMode == .tap,
+           suppressDuplicateTap(
+               for: control,
+               mapping: mapping,
+               sourceModifier: modifierControl
+           ) {
+            return
+        }
         handlePress(
             for: control,
             mapping: mapping,
             sourceModifier: modifierControl
         )
+    }
+
+    private func suppressDuplicateTap(
+        for control: ControllerControlID,
+        mapping: ControllerActionMapping,
+        sourceModifier: ControllerControlID?
+    ) -> Bool {
+        let now = currentTime()
+        defer {
+            recentTaps[control] = RecentTap(
+                mapping: mapping,
+                sourceModifier: sourceModifier,
+                timestamp: now
+            )
+        }
+        guard let previous = recentTaps[control],
+              previous.mapping == mapping,
+              previous.sourceModifier == sourceModifier else {
+            return false
+        }
+        let elapsed = now - previous.timestamp
+        return elapsed >= 0 && elapsed < Self.duplicateTapInterval
     }
 
     private func releaseModifier(

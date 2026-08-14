@@ -244,7 +244,10 @@ private struct LiveControllerCard: View {
 
     var body: some View {
         let snapshot = appModel.controllerSnapshot
-        let pressed = snapshot.pressedControls.map(\.displayName).sorted().joined(separator: ", ")
+        let pressed = snapshot.pressedControls
+            .map { appModel.controlDisplayName($0) }
+            .sorted()
+            .joined(separator: ", ")
 
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -260,8 +263,8 @@ private struct LiveControllerCard: View {
             HStack(alignment: .top, spacing: 14) {
                 StickTelemetryView(title: "Left", stick: snapshot.leftStick)
                 StickTelemetryView(title: "Right", stick: snapshot.rightStick)
-                TriggerTelemetryView(title: "LT", value: snapshot.value(for: .leftTrigger))
-                TriggerTelemetryView(title: "RT", value: snapshot.value(for: .rightTrigger))
+                TriggerTelemetryView(title: appModel.controlDisplayName(.leftTrigger), value: snapshot.value(for: .leftTrigger))
+                TriggerTelemetryView(title: appModel.controlDisplayName(.rightTrigger), value: snapshot.value(for: .rightTrigger))
             }
 
             Text("Pressed: \(pressed.isEmpty ? "none" : pressed)")

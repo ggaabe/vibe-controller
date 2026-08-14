@@ -61,6 +61,7 @@ final class ShortcutCaptureNSView: NSView {
     private var keyboardEventTapSource: CFRunLoopSource?
     private var localSystemDefinedMonitor: Any?
     private var globalSystemDefinedMonitor: Any?
+    private var pressedModifierKeyCodes = Set<UInt16>()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -139,7 +140,24 @@ final class ShortcutCaptureNSView: NSView {
             return false
         }
 
-        guard isCapturing, type == .keyDown else { return false }
+        guard isCapturing else { return false }
+        if type == .flagsChanged,
+           ShortcutDescriptor.modifierKeyCodes.contains(keyCode),
+           keyCode != 57,
+           keyCode != 63 {
+            if pressedModifierKeyCodes.contains(keyCode) {
+                pressedModifierKeyCodes.remove(keyCode)
+            } else {
+                pressedModifierKeyCodes.insert(keyCode)
+            }
+            if let shortcut = ShortcutDescriptor.leftRightModifierChord(
+                pressedKeyCodes: pressedModifierKeyCodes
+            ) {
+                capture(shortcut)
+            }
+            return true
+        }
+        guard type == .keyDown else { return false }
         capture(keyCode: keyCode, modifiers: KeyboardModifier.from(eventFlags))
         return true
     }
@@ -174,8 +192,11 @@ final class ShortcutCaptureNSView: NSView {
         }
         guard !ShortcutDescriptor.modifierKeyCodes.contains(keyCode) else { return }
 
-        let shortcut = ShortcutDescriptor(keyCode: keyCode, modifiers: modifiers)
-        guard !shortcut.isModifierOnly else { return }
+        capture(ShortcutDescriptor(keyCode: keyCode, modifiers: modifiers))
+    }
+
+    private func capture(_ shortcut: ShortcutDescriptor) {
+        guard shortcut.isAssignable else { return }
 
         self.shortcut = shortcut
         isCapturing = false
@@ -186,7 +207,9 @@ final class ShortcutCaptureNSView: NSView {
 
     private func startCaptureMonitors() {
         if keyboardEventTap == nil {
-            let eventMask = CGEventMask(1) << CGEventType.keyDown.rawValue
+            pressedModifierKeyCodes.removeAll()
+            let eventMask = (CGEventMask(1) << CGEventType.keyDown.rawValue)
+                | (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
             if let tap = CGEvent.tapCreate(
                 tap: .cgSessionEventTap,
                 place: .headInsertEventTap,
@@ -218,6 +241,7 @@ final class ShortcutCaptureNSView: NSView {
     }
 
     private func stopCaptureMonitors() {
+        pressedModifierKeyCodes.removeAll()
         if let localSystemDefinedMonitor {
             NSEvent.removeMonitor(localSystemDefinedMonitor)
             self.localSystemDefinedMonitor = nil

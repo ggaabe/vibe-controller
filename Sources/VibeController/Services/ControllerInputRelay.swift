@@ -12,6 +12,7 @@ extension ControllerSnapshot {
         isConnected == other.isConnected &&
             controllerName == other.controllerName &&
             connectionSummary == other.connectionSummary &&
+            controllerFamily == other.controllerFamily &&
             batteryLevel == other.batteryLevel &&
             batteryStateDescription == other.batteryStateDescription &&
             pressedControls == other.pressedControls &&
@@ -49,6 +50,7 @@ final class ControllerInputRelay: @unchecked Sendable {
     private var latestGameControllerSnapshot = ControllerSnapshot.disconnected
     private var rawUSBConnected = false
     private var rawUSBName: String?
+    private var rawUSBFamily: ControllerFamily = .generic
     private var latestRawUSBState: XboxUSBInputState?
 
     init(inputQueue: DispatchQueue) {
@@ -88,11 +90,16 @@ final class ControllerInputRelay: @unchecked Sendable {
         }
     }
 
-    func setRawUSBConnection(isConnected: Bool, name: String?) {
+    func setRawUSBConnection(
+        isConnected: Bool,
+        name: String?,
+        family: ControllerFamily = .generic
+    ) {
         inputQueue.async { [weak self] in
             guard let self else { return }
             self.rawUSBConnected = isConnected
             self.rawUSBName = isConnected ? name : nil
+            self.rawUSBFamily = isConnected ? family : .generic
             if isConnected {
                 if let latestRawUSBState {
                     self.publish(self.rawSnapshot(from: latestRawUSBState), forceTelemetry: true)
@@ -118,8 +125,11 @@ final class ControllerInputRelay: @unchecked Sendable {
             isConnected: true,
             controllerName: rawUSBName
                 ?? latestGameControllerSnapshot.controllerName
-                ?? "Xbox Controller",
+                ?? rawUSBFamily.displayName,
             connectionSummary: "USB • Direct HID",
+            controllerFamily: state.controllerFamily == .generic
+                ? rawUSBFamily
+                : state.controllerFamily,
             batteryLevel: latestGameControllerSnapshot.batteryLevel,
             batteryStateDescription: latestGameControllerSnapshot.batteryStateDescription,
             pressedControls: state.pressedControls,

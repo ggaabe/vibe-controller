@@ -4,9 +4,9 @@
   <img src="Resources/AppIcon.png" alt="Vibe Controller app icon" width="180">
 </p>
 
-Vibe Controller is a native macOS app that turns an Xbox-compatible game controller into a desktop input device. Use the analog sticks as primary and precision cursors, map controller buttons to mouse actions or keyboard shortcuts, scroll and switch Spaces with the D-pad, and move seamlessly between nearby Macs with macOS Universal Control.
+Vibe Controller is a native macOS app that turns an Xbox or PlayStation game controller into a desktop input device. Use the analog sticks as primary and precision cursors, map controller buttons to mouse actions or keyboard shortcuts, scroll and switch Spaces with the D-pad, and move seamlessly between nearby Macs with macOS Universal Control.
 
-The app includes a live Xbox-style controller map, per-control remapping, adjustable cursor response, importable and exportable JSON profiles, input diagnostics, native Universal Control handoff, and an experimental network companion mode for Macs that cannot use Universal Control.
+The app automatically presents an Xbox or PlayStation-style live controller map, with native button names and a mappable DualSense/DualShock touchpad click. It also includes per-control remapping, adjustable cursor response, importable and exportable JSON profiles, input diagnostics, native Universal Control handoff, and an experimental network companion mode for Macs that cannot use Universal Control.
 
 ## Download
 
@@ -18,7 +18,7 @@ If the Releases page does not have a build yet, use the source instructions belo
 
 - macOS 14 or newer
 - An Apple-silicon Mac for the packaged release
-- An Xbox-compatible controller connected over Bluetooth or USB
+- An Xbox-compatible, PlayStation DualSense, or PlayStation DualShock 4 controller connected over Bluetooth or USB
 - Accessibility permission so Vibe Controller can move the pointer and send input
 - Swift 6.2 or a compatible Xcode toolchain when building from source
 - Universal Control configured in macOS when controlling another Mac natively
@@ -69,14 +69,14 @@ Only the lead, controller-connected Mac needs Vibe Controller for this mode. The
 1. Set up Universal Control on both Macs using [Apple's instructions](https://support.apple.com/en-us/102459). The Macs should already let the lead Mac's trackpad move through the chosen display edge.
 2. Complete the automatic three-step setup shown in Vibe Controller. This installs the open-source [Karabiner DriverKit VirtualHIDDevice](https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice) and Vibe Controller's signed bridge, then requests the required macOS approvals.
 3. Wait for the Cross-Mac card to say **Cross-Mac input is ready**.
-4. Connect the Xbox controller to the lead Mac. USB is recommended: supported Microsoft Xbox USB devices use a direct HID reader that remains active while Universal Control owns the pointer on the second Mac.
+4. Connect the Xbox or PlayStation controller to the lead Mac. USB is recommended: supported Microsoft Xbox, Sony DualSense, and Sony DualShock 4 USB devices use a direct HID reader that remains active while Universal Control owns the pointer on the second Mac.
 5. Leave **Cross-Mac Control → Mode** set to **Native Universal Control**. Move the primary stick through the same left or right edge used by Universal Control. Keep holding the stick and the pointer will continue across the second Mac.
 6. Click, scroll, dictate, capture a screenshot, or start an LT drag after the pointer arrives on the second Mac. Those mapped actions follow the Universal Control pointer target.
 7. Push back through the corresponding edge to return to the lead Mac.
 
 The installed bridge runs with elevated privileges because the virtual-HID daemon accepts only root clients. It accepts commands only through a pipe inherited from a valid `com.vibe-controller.app` process signed by the same development team; unrelated local processes are rejected. The older IOHIDSystem route remains available as a local-pointer fallback but is not presented as successful cross-Mac control.
 
-The app falls back to Apple's Game Controller framework for Bluetooth controllers and non-Microsoft gamepads. Direct USB input is preferred for the cleanest cross-Mac handoff because it is read on the lead Mac independently of Universal Control's active pointer target.
+The app falls back to Apple's Game Controller framework for Bluetooth controllers and other compatible gamepads. Direct USB input is preferred for the cleanest cross-Mac handoff because it is read on the lead Mac independently of Universal Control's active pointer target.
 
 ### What Virtual Hardware Support installs
 
@@ -93,6 +93,8 @@ Public downloads are built by the tag-driven release workflow, which requires De
 ## Gabe's Defaults
 
 Fresh installs start with the bundled **Gabe's Defaults** profile:
+
+PlayStation controllers use the same physical-position mappings: Cross/Circle/Square/Triangle correspond to A/B/X/Y, L1/R1/L2/R2 correspond to LB/RB/LT/RT, Create corresponds to View, Options corresponds to Menu, and PS corresponds to Home. The PlayStation touchpad click is also available as an additional remappable control.
 
 | Control | Default action | Notes |
 | --- | --- | --- |
@@ -153,6 +155,16 @@ Modifier layers let one controller button expose a second set of actions without
 Modifier combinations are resolved on the controller-connected Mac before the resulting mouse or keyboard input is sent. They therefore continue to work through native Universal Control without installing Vibe Controller on the other Macs.
 
 For example, add an **LB** modifier layer and map **LB + D-pad Left/Right/Up/Down** to the matching **Cross Edge** actions. Each action sends a brief, fast virtual-mouse sweep through the chosen Universal Control edge; the other Mac does not need Vibe Controller installed.
+
+Gabe's Defaults ships with the current modifier setup already configured:
+
+| Combination | Action |
+| --- | --- |
+| LB + X / Square | Type a period (`.`) |
+| LB + Y / Triangle | Type a Space |
+| LB + RB / R1 | Press Left Command + Right Command |
+| LB + D-pad direction | Cross the matching Universal Control edge |
+| RB / R1 + D-pad direction | Cross the matching Universal Control edge |
 
 ## Optional two-Mac companion mode
 
