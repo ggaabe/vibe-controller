@@ -518,6 +518,30 @@ extension ControllerProfile {
             ControllerModifierLayer(
                 modifierControl: .leftShoulder,
                 mappings: [
+                    .buttonNorth: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 49, modifiers: []),
+                        triggerMode: .tap
+                    ),
+                    .buttonWest: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 47, modifiers: []),
+                        triggerMode: .tap
+                    ),
+                    .rightShoulder: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: .leftRightModifierChord(.command),
+                        triggerMode: .tap
+                    ),
+                    .dpadLeft: ControllerActionMapping(actionType: .crossEdgeLeft),
+                    .dpadRight: ControllerActionMapping(actionType: .crossEdgeRight),
+                    .dpadUp: ControllerActionMapping(actionType: .crossEdgeUp),
+                    .dpadDown: ControllerActionMapping(actionType: .crossEdgeDown),
+                ]
+            ),
+            ControllerModifierLayer(
+                modifierControl: .rightShoulder,
+                mappings: [
                     .dpadLeft: ControllerActionMapping(actionType: .crossEdgeLeft),
                     .dpadRight: ControllerActionMapping(actionType: .crossEdgeRight),
                     .dpadUp: ControllerActionMapping(actionType: .crossEdgeUp),

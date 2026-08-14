@@ -35,6 +35,34 @@ final class ProfileStoreTests: XCTestCase {
             document.profiles.first?.modifierLayer(for: .leftShoulder)?.mappings[.dpadDown]?.actionType,
             .crossEdgeDown
         )
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .leftShoulder)?.mappings[.buttonNorth]?.shortcut?.displayString,
+            "Space"
+        )
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .leftShoulder)?.mappings[.buttonWest]?.shortcut?.displayString,
+            "."
+        )
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .leftShoulder)?.mappings[.rightShoulder]?.shortcut?.displayString,
+            "L⌘ + R⌘"
+        )
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .rightShoulder)?.mappings[.dpadLeft]?.actionType,
+            .crossEdgeLeft
+        )
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .rightShoulder)?.mappings[.dpadRight]?.actionType,
+            .crossEdgeRight
+        )
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .rightShoulder)?.mappings[.dpadUp]?.actionType,
+            .crossEdgeUp
+        )
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .rightShoulder)?.mappings[.dpadDown]?.actionType,
+            .crossEdgeDown
+        )
         XCTAssertEqual(document.profiles.first, ControllerProfile.gabesDefaults)
     }
 
