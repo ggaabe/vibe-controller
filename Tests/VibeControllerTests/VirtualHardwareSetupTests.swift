@@ -76,6 +76,59 @@ final class VirtualHardwareSetupTests: XCTestCase {
         XCTAssertEqual(snapshot.phase, .ready)
     }
 
+    func testDriverApprovalBannerUsesTheExactSystemSettingsPathAndKeepsActionsVisible() throws {
+        let presentation = try XCTUnwrap(
+            VirtualHardwareSetupPhase.needsDriverApproval.bannerPresentation(
+                accessibilityRepairRecommended: false
+            )
+        )
+
+        XCTAssertEqual(presentation.stepLabel, "Step 3 of 3")
+        XCTAssertTrue(
+            presentation.instructions.contains {
+                $0.contains(".Karabiner‑VirtualHIDDevice‑Manager Driver Extension") &&
+                    $0.contains("Show Detail")
+            }
+        )
+        XCTAssertTrue(
+            presentation.instructions.contains {
+                $0.contains("Provides additional functionality for system drivers")
+            }
+        )
+        XCTAssertEqual(presentation.actions.first?.id, .openDriverSettings)
+        XCTAssertTrue(presentation.actions.contains { $0.id == .refresh })
+    }
+
+    func testAccessibilityBannerExplainsHowToRepairAnEnabledButStaleGrant() throws {
+        let presentation = try XCTUnwrap(
+            VirtualHardwareSetupPhase.needsAccessibility.bannerPresentation(
+                accessibilityRepairRecommended: true
+            )
+        )
+
+        XCTAssertEqual(presentation.title, "Refresh Accessibility access")
+        XCTAssertTrue(presentation.instructions.contains { $0.contains("click −") })
+        XCTAssertEqual(presentation.actions.first?.id, .openAccessibilitySettings)
+    }
+
+    func testEveryIncompleteSetupPhaseHasAReachableAction() {
+        let phases: [VirtualHardwareSetupPhase] = [
+            .checking,
+            .needsAccessibility,
+            .needsSupportInstall,
+            .missingBundledInstaller,
+            .driverVersionMismatch,
+            .needsDriverApproval,
+            .startingVirtualHardware
+        ]
+
+        for phase in phases {
+            let presentation = phase.bannerPresentation(accessibilityRepairRecommended: false)
+            XCTAssertFalse(presentation?.actions.isEmpty ?? true, "Missing action for \(phase)")
+        }
+        XCTAssertNil(VirtualHardwareSetupPhase.ready.bannerPresentation(accessibilityRepairRecommended: false))
+    }
+
     private func makeSnapshot(
         accessibilityTrusted: Bool = true,
         helperInstalledSecurely: Bool = false,

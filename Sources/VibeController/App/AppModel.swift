@@ -93,6 +93,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var activeProfileID: String
     @Published private(set) var controllerSnapshot: ControllerSnapshot
     @Published private(set) var accessibilityTrusted: Bool
+    @Published private(set) var accessibilityRepairRecommended: Bool
     @Published private(set) var isRuntimeEnabled: Bool
     @Published private(set) var isAppFrontmost: Bool
     private(set) var controllerInputEvents: Int = 0
@@ -108,6 +109,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var companionRemoteBuildSummary = "Waiting for peer metadata"
     @Published private(set) var companionHandoffDebug = "No handoff activity yet."
     @Published private(set) var virtualHardwareSetupPhase: VirtualHardwareSetupPhase = .checking
+    @Published private(set) var appUpdateState: AppUpdateState = .idle
     @Published private(set) var selectedMappingLayer: ControllerMappingLayer = .base
     @Published var presentedSheet: ControllerSheetSelection?
     @Published var lastErrorMessage: String?
@@ -119,11 +121,13 @@ final class AppModel: ObservableObject {
     private let profileStore: ProfileStore
     private let cursorEngine: CursorEngine
     private let actionEngine: ActionEngine
+    private let appUpdateService: AppUpdateService
     private let userDefaults = UserDefaults.standard
     private var lastLocalHandoffRestorePoint: CGPoint?
     private var cancellables = Set<AnyCancellable>()
     private var automaticSetupTimer: Timer?
     private var driverActivationProcess: Process?
+    private var appUpdateTask: Task<Void, Never>?
     private var didAutomaticallyRequestAccessibility = false
     private var didAutomaticallyOpenSupportInstaller = false
     private var didAutomaticallyRequestDriverActivation = false
@@ -134,7 +138,8 @@ final class AppModel: ObservableObject {
         controllerManager: ControllerManager = ControllerManager(),
         permissionManager: PermissionManager = PermissionManager(),
         companionManager: CompanionManager = CompanionManager(),
-        cursorEngine: CursorEngine = CursorEngine()
+        cursorEngine: CursorEngine = CursorEngine(),
+        appUpdateService: AppUpdateService = AppUpdateService()
     ) {
         self.profileStore = profileStore
         self.controllerManager = controllerManager
@@ -142,12 +147,14 @@ final class AppModel: ObservableObject {
         self.companionManager = companionManager
         self.cursorEngine = cursorEngine
         self.actionEngine = ActionEngine(cursorEngine: cursorEngine)
+        self.appUpdateService = appUpdateService
 
         let loadedDocument = (try? profileStore.loadOrCreate()) ?? ProfileDocument.defaultDocument
         self.document = loadedDocument
         self.activeProfileID = profileStore.effectiveActiveProfileID(for: loadedDocument)
         self.controllerSnapshot = controllerManager.snapshot
         self.accessibilityTrusted = permissionManager.accessibilityTrusted
+        self.accessibilityRepairRecommended = permissionManager.accessibilityRepairRecommended
         self.isRuntimeEnabled = profileStore.loadEnabledState()
         self.isAppFrontmost = NSApp.isActive
         self.companionMode = CompanionMode(rawValue: userDefaults.string(forKey: Self.companionModeKey) ?? "") ?? .off
@@ -198,6 +205,13 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        permissionManager.$accessibilityRepairRecommended
+            .receive(on: RunLoop.main)
+            .sink { [weak self] recommended in
+                self?.accessibilityRepairRecommended = recommended
+            }
+            .store(in: &cancellables)
+
         companionManager.$discoveredPeers
             .receive(on: RunLoop.main)
             .sink { [weak self] peers in
@@ -233,8 +247,14 @@ final class AppModel: ObservableObject {
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.isAppFrontmost = true
-                self?.syncCursorConfiguration()
+                guard let self else { return }
+                self.isAppFrontmost = true
+                self.permissionManager.refresh()
+                self.syncCursorConfiguration()
+                self.advanceAutomaticSetup()
+                if self.virtualHardwareSetupPhase == .needsDriverApproval {
+                    self.lastActionStatus = "Driver approval is still pending. Follow the visible Step 3 instructions."
+                }
             }
             .store(in: &cancellables)
 
@@ -254,6 +274,10 @@ final class AppModel: ObservableObject {
             actionEngine.process(snapshot: controllerSnapshot, profile: activeProfile)
         }
         startAutomaticSetupMonitoring()
+        Task { [appUpdateService] in
+            await appUpdateService.removeAbandonedArtifacts(beside: Bundle.main.bundleURL)
+        }
+        scheduleAutomaticUpdateCheck()
     }
 
     var activeProfile: ControllerProfile {
@@ -362,6 +386,50 @@ final class AppModel: ObservableObject {
         virtualHardwareSetupPhase.stepNumber.map { "Step \($0) of 3" }
     }
 
+    var setupBannerPresentation: SetupBannerPresentation? {
+        virtualHardwareSetupPhase.bannerPresentation(
+            accessibilityRepairRecommended: accessibilityRepairRecommended
+        )
+    }
+
+    var applicationVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+    }
+
+    var canInstallUpdatesAutomatically: Bool {
+        Bundle.main.bundleIdentifier == AppUpdateService.productionBundleIdentifier &&
+            Bundle.main.bundleURL.pathExtension == "app" &&
+            FileManager.default.isWritableFile(
+                atPath: Bundle.main.bundleURL.deletingLastPathComponent().path
+            )
+    }
+
+    var appUpdatePresentation: AppUpdatePresentation {
+        AppUpdatePresentation.make(
+            state: appUpdateState,
+            currentVersion: applicationVersion,
+            canInstallAutomatically: canInstallUpdatesAutomatically
+        )
+    }
+
+    func performPrimaryUpdateAction() {
+        guard !appUpdateState.isBusy else { return }
+        switch appUpdateState {
+        case .available(let update):
+            if canInstallUpdatesAutomatically {
+                install(update: update)
+            } else {
+                NSWorkspace.shared.open(update.releasePageURL)
+            }
+        default:
+            checkForUpdates()
+        }
+    }
+
+    func checkForUpdates() {
+        beginUpdateCheck(isAutomatic: false)
+    }
+
     func openVirtualHardwareInstaller() {
         didAutomaticallyOpenSupportInstaller = true
         guard let url = virtualHardwareInstallerURL else {
@@ -374,7 +442,7 @@ final class AppModel: ObservableObject {
 
     func activateVirtualHardwareDriver() {
         didAutomaticallyRequestDriverActivation = true
-        requestVirtualHardwareDriverActivation(openSettings: true)
+        requestVirtualHardwareDriverActivation()
     }
 
     func openDriverExtensionSettings() {
@@ -382,7 +450,26 @@ final class AppModel: ObservableObject {
             return
         }
         NSWorkspace.shared.open(url)
-        lastActionStatus = "Opened Driver Extension settings. Select Karabiner and enable its Driver Extension."
+        lastActionStatus = "Open Extensions, select .Karabiner‑VirtualHIDDevice‑Manager Driver Extension, choose Show Detail, and enable the system-driver switch."
+    }
+
+    func performSetupAction(_ action: SetupActionID) {
+        switch action {
+        case .openAccessibilitySettings:
+            permissionManager.openAccessibilitySettings()
+            lastActionStatus = "Opened Accessibility settings. Enable Vibe Controller, then return here."
+        case .requestAccessibility:
+            requestAccessibilitySetup()
+        case .openSupportInstaller:
+            openVirtualHardwareInstaller()
+        case .openDriverSettings:
+            openDriverExtensionSettings()
+        case .refresh:
+            permissionManager.refresh()
+            refreshVirtualHardwareSupport()
+        case .retry:
+            retryAutomaticSetup()
+        }
     }
 
     func refreshVirtualHardwareSupport() {
@@ -493,9 +580,7 @@ final class AppModel: ObservableObject {
     func requestAccessibilitySetup() {
         didAutomaticallyRequestAccessibility = true
         permissionManager.requestAccessibilityPrompt()
-        if !permissionManager.accessibilityTrusted {
-            permissionManager.openAccessibilitySettings()
-        }
+        lastActionStatus = "Waiting for Accessibility approval. Use the setup banner to open System Settings if needed."
     }
 
     func resetActiveProfileToDefaults() {
@@ -1131,6 +1216,96 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func scheduleAutomaticUpdateCheck() {
+        guard Bundle.main.bundleIdentifier == AppUpdateService.productionBundleIdentifier else { return }
+        let lastCheckedAt = userDefaults.object(forKey: Self.lastUpdateCheckKey) as? Date
+        guard AppUpdateService.shouldAutomaticallyCheck(lastCheckedAt: lastCheckedAt, now: Date()) else {
+            return
+        }
+
+        appUpdateTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.beginUpdateCheck(isAutomatic: true)
+        }
+    }
+
+    private func beginUpdateCheck(isAutomatic: Bool) {
+        guard !appUpdateState.isBusy else { return }
+        appUpdateTask?.cancel()
+        appUpdateState = .checking
+        let currentVersion = applicationVersion
+
+        appUpdateTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await self.appUpdateService.checkForUpdate(
+                    currentVersion: currentVersion
+                )
+                guard !Task.isCancelled else { return }
+                self.userDefaults.set(Date(), forKey: Self.lastUpdateCheckKey)
+                switch result {
+                case .upToDate(let latestVersion):
+                    self.appUpdateState = .upToDate(
+                        currentVersion: currentVersion,
+                        latestVersion: latestVersion.description
+                    )
+                case .available(let update):
+                    self.appUpdateState = .available(update)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.appUpdateState = isAutomatic
+                    ? .idle
+                    : .failed(message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func install(update: AvailableAppUpdate) {
+        guard canInstallUpdatesAutomatically else {
+            NSWorkspace.shared.open(update.releasePageURL)
+            return
+        }
+
+        appUpdateTask?.cancel()
+        appUpdateState = .downloading(version: update.version.description)
+        let currentApplicationURL = Bundle.main.bundleURL
+
+        appUpdateTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let prepared = try await self.appUpdateService.prepare(
+                    update: update,
+                    currentApplicationURL: currentApplicationURL,
+                    onDownloadsFinished: { @MainActor [weak self] in
+                        guard let self, !Task.isCancelled else { return }
+                        self.appUpdateState = .preparing(version: update.version.description)
+                    }
+                )
+                guard !Task.isCancelled else {
+                    await self.appUpdateService.discard(prepared)
+                    return
+                }
+                self.appUpdateState = .installing(version: update.version.description)
+                do {
+                    try await self.appUpdateService.launchReplacement(
+                        prepared,
+                        processIdentifier: ProcessInfo.processInfo.processIdentifier
+                    )
+                } catch {
+                    await self.appUpdateService.discard(prepared)
+                    throw error
+                }
+                self.shutdown()
+                NSApp.terminate(nil)
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.appUpdateState = .failed(message: error.localizedDescription)
+            }
+        }
+    }
+
     private var virtualHardwareSetupSnapshot: VirtualHardwareSetupSnapshot {
         let bridge = cursorEngine.universalControlInputBridge
         return VirtualHardwareSetupSnapshot(
@@ -1164,7 +1339,7 @@ final class AppModel: ObservableObject {
                       Date().timeIntervalSince(startedAt) >= 3,
                       !didAutomaticallyRequestDriverActivation {
                 didAutomaticallyRequestDriverActivation = true
-                requestVirtualHardwareDriverActivation(openSettings: true)
+                requestVirtualHardwareDriverActivation()
             }
 
         case .needsAccessibility:
@@ -1190,7 +1365,8 @@ final class AppModel: ObservableObject {
         case .needsDriverApproval:
             guard !didAutomaticallyRequestDriverActivation else { return }
             didAutomaticallyRequestDriverActivation = true
-            requestVirtualHardwareDriverActivation(openSettings: true)
+            requestVirtualHardwareDriverActivation()
+            lastActionStatus = "Driver approval is required. Follow the visible Step 3 instructions."
 
         case .startingVirtualHardware:
             if phaseChanged {
@@ -1205,16 +1381,13 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func requestVirtualHardwareDriverActivation(openSettings: Bool) {
+    private func requestVirtualHardwareDriverActivation() {
         guard virtualHardwareDriverInstalled else {
             lastErrorMessage = "Install Virtual Hardware Support first."
             return
         }
 
         if driverActivationProcess?.isRunning == true {
-            if openSettings {
-                openDriverExtensionSettingsAfterRequest()
-            }
             return
         }
 
@@ -1237,19 +1410,8 @@ final class AppModel: ObservableObject {
             try process.run()
             driverActivationProcess = process
             lastActionStatus = "Requesting Driver Extension approval…"
-            if openSettings {
-                openDriverExtensionSettingsAfterRequest()
-            }
         } catch {
             lastErrorMessage = error.localizedDescription
-        }
-    }
-
-    private func openDriverExtensionSettingsAfterRequest() {
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(1))
-            guard let self, !self.virtualHardwareReady else { return }
-            self.openDriverExtensionSettings()
         }
     }
 
@@ -1292,6 +1454,7 @@ final class AppModel: ObservableObject {
     }
 
     private func shutdown() {
+        appUpdateTask?.cancel()
         companionManager.disconnect()
         actionEngine.cancelAll()
         cursorEngine.releaseTransientState()
@@ -1304,6 +1467,7 @@ private extension AppModel {
     static let companionModeKey = "companion.mode"
     static let companionEdgeKey = "companion.edge"
     static let selectedPeerKey = "companion.selectedPeer"
+    static let lastUpdateCheckKey = "updates.lastSuccessfulCheck"
 }
 
 private extension ControllerControlID {

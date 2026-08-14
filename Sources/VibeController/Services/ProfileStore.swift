@@ -5,6 +5,7 @@ final class ProfileStore {
     static let profileFileName = "profiles.json"
     static let activeProfileDefaultsKey = "ActiveProfileID"
     static let enabledDefaultsKey = "ControllerRuntimeEnabled"
+    static let productionBundleIdentifier = "com.vibe-controller.app"
 
     let fileManager: FileManager
     let userDefaults: UserDefaults
@@ -27,11 +28,20 @@ final class ProfileStore {
                 appropriateFor: nil,
                 create: true
             )
+            let directoryName = Self.defaultDirectoryName(
+                bundleIdentifier: Bundle.main.bundleIdentifier
+            )
             let directory = (appSupport ?? URL(fileURLWithPath: NSTemporaryDirectory()))
-                .appendingPathComponent("Vibe Controller", isDirectory: true)
+                .appendingPathComponent(directoryName, isDirectory: true)
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             self.profilesURL = directory.appendingPathComponent(Self.profileFileName)
         }
+    }
+
+    static func defaultDirectoryName(bundleIdentifier: String?) -> String {
+        bundleIdentifier == productionBundleIdentifier
+            ? "Vibe Controller"
+            : "Vibe Controller Dev"
     }
 
     func loadOrCreate() throws -> ProfileDocument {

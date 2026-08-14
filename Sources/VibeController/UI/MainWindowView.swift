@@ -13,16 +13,22 @@ struct MainWindowView: View {
         VStack(spacing: 18) {
             header
                 .zIndex(2)
-            diagnosticsStrip
+            if let presentation = appModel.setupBannerPresentation {
+                SetupBannerView(presentation: presentation) { action in
+                    appModel.performSetupAction(action)
+                }
                 .zIndex(2)
-            if appModel.accessibilityTrusted {
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .zIndex(0)
-            } else {
-                PermissionSetupView()
-                    .zIndex(0)
             }
+            ScrollView(.vertical) {
+                VStack(spacing: 18) {
+                    diagnosticsStrip
+                    content
+                        .frame(maxWidth: .infinity, alignment: .top)
+                }
+                .padding(.bottom, 2)
+            }
+            .scrollIndicators(.automatic)
+            .zIndex(0)
             footer
                 .zIndex(2)
         }
@@ -75,7 +81,7 @@ struct MainWindowView: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Vibe Controller")
+                Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Vibe Controller")
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
                 Text(appModel.controllerSnapshot.controllerName ?? "Waiting for controller")
                     .font(.headline)
@@ -192,7 +198,6 @@ struct MainWindowView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .clipped()
     }
 
     private var footer: some View {
@@ -222,6 +227,11 @@ struct MainWindowView: View {
                     .lineLimit(2)
             }
 
+            AppUpdateControlView(
+                presentation: appModel.appUpdatePresentation,
+                action: appModel.performPrimaryUpdateAction
+            )
+
             Button("Import Profile") {
                 isImporting = true
             }
@@ -236,6 +246,50 @@ struct MainWindowView: View {
             }
         }
         .padding(.horizontal, 4)
+    }
+}
+
+struct AppUpdateControlView: View {
+    let presentation: AppUpdatePresentation
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Group {
+                if presentation.isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: presentation.symbolName)
+                        .foregroundStyle(presentation.isProminent ? Color.accentColor : .secondary)
+                }
+            }
+            .frame(width: 18, height: 18)
+
+            Text(presentation.statusText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if presentation.isProminent {
+                Button(presentation.buttonTitle, action: action)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    .frame(minHeight: 40)
+                    .disabled(presentation.isBusy)
+            } else {
+                Button(presentation.buttonTitle, action: action)
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .frame(minHeight: 40)
+                    .disabled(presentation.isBusy)
+            }
+        }
+        .frame(width: 410, alignment: .trailing)
+        .help("Checks the signed Vibe Controller releases on GitHub and installs updates in place.")
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("updates.control")
     }
 }
 
@@ -382,45 +436,108 @@ private struct AxisMeter: View {
     }
 }
 
-private struct PermissionSetupView: View {
-    @EnvironmentObject private var appModel: AppModel
+struct SetupBannerView: View {
+    let presentation: SetupBannerPresentation
+    let action: (SetupActionID) -> Void
+
+    private var tint: Color {
+        switch presentation.tone {
+        case .neutral:
+            return .secondary
+        case .attention:
+            return .orange
+        case .progress:
+            return .blue
+        }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Text("Accessibility setup")
-                    .font(.title2.weight(.semibold))
-                Spacer()
-                Text("Step 1 of 3")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            Text("Vibe Controller automatically checks its setup on every launch. Accessibility lets controller input move the pointer and send clicks and keyboard shortcuts across macOS.")
-                .foregroundStyle(.secondary)
-            HStack(spacing: 12) {
-                Button("Open Privacy & Security") {
-                    appModel.requestAccessibilitySetup()
-                }
-                .buttonStyle(.borderedProminent)
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: presentation.symbolName)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 40, height: 40)
+                .background(tint.opacity(0.12), in: Circle())
 
-                Button("Refresh Status") {
-                    appModel.permissionManager.refresh()
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(presentation.title)
+                        .font(.headline.weight(.semibold))
+                    if let stepLabel = presentation.stepLabel {
+                        Text(stepLabel)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Text(presentation.detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !presentation.instructions.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(presentation.instructions.enumerated()), id: \.offset) { index, instruction in
+                            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                                Text("\(index + 1).")
+                                    .font(.caption.weight(.semibold).monospacedDigit())
+                                    .foregroundStyle(tint)
+                                    .frame(width: 18, alignment: .trailing)
+                                Text(instruction)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
                 }
             }
-            HStack(spacing: 8) {
-                Image(systemName: appModel.accessibilityTrusted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .foregroundStyle(appModel.accessibilityTrusted ? .green : .orange)
-                Text(appModel.accessibilityTrusted ? "Accessibility granted" : "Accessibility not granted yet")
-                    .font(.subheadline.weight(.medium))
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .trailing, spacing: 8) {
+                ForEach(presentation.actions, id: \.id) { setupAction in
+                    if setupAction.isProminent {
+                        Button(setupAction.title) {
+                            action(setupAction.id)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.regular)
+                        .frame(minHeight: 40)
+                        .accessibilityIdentifier("setup.\(setupAction.id.rawValue)")
+                    } else {
+                        Button(setupAction.title) {
+                            action(setupAction.id)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        .frame(minHeight: 40)
+                        .accessibilityIdentifier("setup.\(setupAction.id.rawValue)")
+                    }
+                }
             }
+            .frame(minWidth: 210, alignment: .trailing)
         }
-        .frame(maxWidth: .infinity, minHeight: 360, alignment: .leading)
-        .padding(28)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color(NSColor.controlBackgroundColor))
+                .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(tint.opacity(0.18), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("setup.banner")
     }
+}
+
+enum MainWindowLayoutMetrics {
+    static let minimumWidth: CGFloat = 1_180
+    static let minimumHeight: CGFloat = 760
+    static let defaultWidth: CGFloat = 1_280
+    static let defaultHeight: CGFloat = 820
+    static let horizontalPadding: CGFloat = 20
 }
 
 private struct NoControllerHelpView: View {
@@ -496,45 +613,9 @@ private struct CompanionSettingsView: View {
                         .foregroundStyle(.secondary)
 
                     if !appModel.virtualHardwareReady {
-                        HStack(spacing: 8) {
-                            switch appModel.virtualHardwareSetupPhase {
-                            case .needsAccessibility:
-                                Button("Grant Accessibility") {
-                                    appModel.retryAutomaticSetup()
-                                }
-                                .buttonStyle(.borderedProminent)
-
-                            case .needsSupportInstall, .driverVersionMismatch:
-                                Button("Open Installer") {
-                                    appModel.openVirtualHardwareInstaller()
-                                }
-                                .buttonStyle(.borderedProminent)
-
-                            case .needsDriverApproval:
-                                Button("Open Driver Settings") {
-                                    appModel.openDriverExtensionSettings()
-                                }
-                                .buttonStyle(.borderedProminent)
-
-                            case .checking, .startingVirtualHardware:
-                                ProgressView()
-                                    .controlSize(.small)
-                                Button("Refresh") {
-                                    appModel.refreshVirtualHardwareSupport()
-                                }
-
-                            case .missingBundledInstaller:
-                                EmptyView()
-
-                            case .ready:
-                                EmptyView()
-                            }
-
-                            Button("Run Setup Again") {
-                                appModel.retryAutomaticSetup()
-                            }
-                        }
-                        .controlSize(.small)
+                        Label("Complete setup using the persistent instructions above.", systemImage: "arrow.up")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .padding(10)

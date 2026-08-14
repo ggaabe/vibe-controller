@@ -301,10 +301,12 @@ static bool parent_is_authorized(void) {
   CFStringRef self_team =
       CFDictionaryGetValue(self_info, kSecCodeInfoTeamIdentifier);
 
-  bool authorized =
-      parent_identifier != NULL && parent_team != NULL && self_team != NULL &&
-      CFEqual(parent_identifier, CFSTR("com.vibe-controller.app")) &&
-      CFEqual(parent_team, self_team);
+  bool authorized_identifier =
+      parent_identifier != NULL &&
+      (CFEqual(parent_identifier, CFSTR("com.vibe-controller.app")) ||
+       CFEqual(parent_identifier, CFSTR("com.vibe-controller.app.dev")));
+  bool authorized = authorized_identifier && parent_team != NULL &&
+                    self_team != NULL && CFEqual(parent_team, self_team);
 
   CFRelease(parent_info);
   CFRelease(self_info);

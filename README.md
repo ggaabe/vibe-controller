@@ -12,6 +12,8 @@ The app automatically presents an Xbox or PlayStation-style live controller map,
 
 Signed and Apple-notarized Apple-silicon builds are published on the [GitHub Releases page](https://github.com/ggaabe/vibe-controller/releases). Download the `.dmg`, open it, and drag **Vibe Controller** to **Applications**. The support installer is already inside the app; the separate `.pkg` release asset is provided for repair or managed deployment. The app guides you through Accessibility and its one-time Virtual Hardware Support installation on first launch.
 
+Installed release builds check GitHub once per day and also provide a persistent **Check for Updates** button in the app footer. When a newer signed release is available, choose **Update Now** to download it, verify its published SHA-256 checksum, require the same Developer ID and bundle identity as the running app, replace the app at the same path, and relaunch automatically. Keeping the same signed identity and path preserves macOS privacy approvals. Development builds can check releases but open the release page instead of replacing their deliberately separate app identity.
+
 If the Releases page does not have a build yet, use the source instructions below. Development builds are intentionally kept separate from public downloads so users never receive an unnotarized artifact by mistake.
 
 ## Requirements
@@ -27,36 +29,37 @@ If the Releases page does not have a build yet, use the source instructions belo
 
 ## Build and run
 
-Clone the repository and run the Swift package directly:
+Clone the repository and run the tests:
 
 ```sh
 git clone https://github.com/ggaabe/vibe-controller.git
 cd vibe-controller
 swift build
 swift test
-swift run VibeController
 ```
 
-To build a signed `.app` bundle instead:
+For normal macOS permission behavior, build and launch the signed development app bundle:
 
 ```sh
 VIBE_CONTROLLER_SIGNING_IDENTITY="Apple Development: Your Name (TEAMID)" ./Scripts/package_app.sh
-open "dist/Vibe Controller.app"
+open "dist/Vibe Controller Dev.app"
 ```
 
 `package_app.sh` now performs the complete build: it compiles the app and bridge, downloads and verifies the pinned driver when needed, creates Virtual Hardware Support, embeds that installer and the third-party notice, and signs the app. It refuses to produce an app without the driver package. Both Vibe executables must use the same signing identity; set `VIBE_CONTROLLER_SIGNING_IDENTITY` to the exact value shown by `security find-identity -v -p codesigning`.
 
+Local builds are deliberately named **Vibe Controller Dev**, use `com.vibe-controller.app.dev`, and keep profiles under `~/Library/Application Support/Vibe Controller Dev/`. Public builds remain **Vibe Controller** with `com.vibe-controller.app`. This separation lets contributors test permissions and profiles without replacing or modifying the installed public app.
+
 ## First-run setup
 
 1. Connect the controller over Bluetooth or USB and open Vibe Controller.
-2. The app checks setup automatically and requests Accessibility. Approve Vibe Controller in **System Settings → Privacy & Security → Accessibility**.
+2. The app checks setup automatically and requests Accessibility. Approve Vibe Controller in **System Settings → Privacy & Security → Accessibility**. If an upgraded copy already appears enabled but the app still reports that access is missing, remove the old row with **−**, reopen Vibe Controller, and enable the newly added row.
 3. The bundled **Virtual Hardware Support** installer opens automatically. Approve its one-time administrator prompt.
-4. Vibe Controller then requests Driver Extension activation and opens **System Settings → General → Login Items & Extensions**. Open the Karabiner detail and enable its Driver Extension.
+4. Vibe Controller requests Driver Extension activation and keeps Step 3 visible at the top of its window. Choose **Open Driver Settings**, open **Extensions**, find **.Karabiner‑VirtualHIDDevice‑Manager Driver Extension**, click **Show Detail**, and enable **Provides additional functionality for system drivers**.
 5. Return to Vibe Controller. It polls each gate and advances on its own; the Cross-Mac card finishes at **Cross-Mac input is ready**.
 6. Confirm that the header reports the controller as connected, then move the sticks and press buttons while watching the live diagnostics and blue controller-map highlights.
 7. Click any control on the map to change its action or shortcut, and adjust cursor response in the Cursor panel as desired.
 
-The app requests each missing step only once per launch so it does not trap users in repeated system dialogs. **Run Setup Again**, **Open Installer**, and **Open Driver Settings** remain available when someone cancels a prompt. macOS intentionally requires a person to approve Accessibility, the administrator install, and the Driver Extension; the app can detect and open those gates but cannot silently bypass Touch ID or the account password.
+The app requests each missing step only once per launch so it does not trap users in repeated system dialogs. A persistent setup banner stays above the scrollable controller workspace until every gate is complete, so **Open Accessibility Settings**, **Open Installer**, **Open Driver Settings**, and **Check Again** remain reachable at every supported window size. Returning from System Settings refreshes the current permission and repeats any still-pending instructions. macOS intentionally requires a person to approve Accessibility, the administrator install, and the Driver Extension; the app can detect and open those gates but cannot silently bypass Touch ID or the account password.
 
 Profiles are saved locally at `~/Library/Application Support/Vibe Controller/profiles.json`. Use **Import Profile** and **Export Profile** to move an individual profile between Macs.
 
@@ -74,7 +77,7 @@ Only the lead, controller-connected Mac needs Vibe Controller for this mode. The
 6. Click, scroll, dictate, capture a screenshot, or start an LT drag after the pointer arrives on the second Mac. Those mapped actions follow the Universal Control pointer target.
 7. Push back through the corresponding edge to return to the lead Mac.
 
-The installed bridge runs with elevated privileges because the virtual-HID daemon accepts only root clients. It accepts commands only through a pipe inherited from a valid `com.vibe-controller.app` process signed by the same development team; unrelated local processes are rejected. The older IOHIDSystem route remains available as a local-pointer fallback but is not presented as successful cross-Mac control.
+The installed bridge runs with elevated privileges because the virtual-HID daemon accepts only root clients. It accepts commands only through a pipe inherited from the same-team signed production or explicitly separated development app; unrelated local processes are rejected. The older IOHIDSystem route remains available as a local-pointer fallback but is not presented as successful cross-Mac control.
 
 The app falls back to Apple's Game Controller framework for Bluetooth controllers and other compatible gamepads. Direct USB input is preferred for the cleanest cross-Mac handoff because it is read on the lead Mac independently of Universal Control's active pointer target.
 
@@ -83,7 +86,7 @@ The app falls back to Apple's Game Controller framework for Bluetooth controller
 Yes—the HID component is required. Universal Control stops forwarding ordinary synthetic cursor events after the handoff, while a virtual hardware mouse continues like a trackpad. The bundled support package contains:
 
 - The unmodified, signed, and Apple-notarized **Karabiner-DriverKit-VirtualHIDDevice 8.2.0** package, pinned by SHA-256.
-- Vibe Controller's small signed bridge, installed setuid-root because the Karabiner daemon accepts only root clients. The bridge rejects callers unless its parent is the signed `com.vibe-controller.app` from the same Apple team.
+- Vibe Controller's small signed bridge, installed setuid-root because the Karabiner daemon accepts only root clients. The bridge rejects callers unless its parent is the same-team signed production app (`com.vibe-controller.app`) or explicitly separated development app (`com.vibe-controller.app.dev`).
 - No software for the second Mac; all support lives on the lead Mac.
 
 `THIRD_PARTY_NOTICES.md` is embedded in every packaged app. The source repository does not commit the third-party binary: the packaging script downloads it from the tagged upstream release, verifies its exact checksum and Apple notarization, and then embeds it in the app's Resources directory.

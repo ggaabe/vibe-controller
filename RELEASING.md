@@ -4,6 +4,8 @@ Vibe Controller's release workflow builds an Apple-silicon app, signs the app an
 
 Public artifacts are never produced with development signatures. A missing certificate, notarization credential, rejected signature, failed test, malformed tag, or failed mounted-DMG check stops the workflow before the GitHub Release is created.
 
+The in-app updater reads GitHub's latest stable release and expects the workflow's existing `Vibe-Controller-<version>-arm64.dmg` and `SHA256SUMS.txt` asset names. Do not rename or omit those assets. Before replacing the installed app, the updater verifies the published checksum, Gatekeeper acceptance, the embedded version, the production bundle identifier, and the current app's Developer ID designated requirement.
+
 ## One-time Apple setup
 
 An Apple Developer Program team must provide:
@@ -43,6 +45,8 @@ Any contributor with an Apple Development certificate can exercise the whole non
 ```
 
 This runs the test suite, builds the app and combined support installer, makes and mounts a DMG, verifies its contents and signatures, and writes checksums under `dist/release/`. Its filenames end in `-development`; those artifacts are deliberately not notarized and must not be uploaded as a public release.
+
+The development disk image contains **Vibe Controller Dev.app** with bundle identifier `com.vibe-controller.app.dev`. Distribution releases contain **Vibe Controller.app** with `com.vibe-controller.app`. Keeping those identities separate prevents local development builds from replacing the public app's Accessibility approval.
 
 Maintainers can run the distribution path locally with Developer ID identities and either an existing `notarytool` keychain profile or App Store Connect key environment variables:
 

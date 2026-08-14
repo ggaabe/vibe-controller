@@ -3,6 +3,21 @@ import Foundation
 import XCTest
 
 final class ProfileStoreTests: XCTestCase {
+    func testDevelopmentBuildKeepsProfilesSeparateFromProduction() {
+        XCTAssertEqual(
+            ProfileStore.defaultDirectoryName(bundleIdentifier: "com.vibe-controller.app"),
+            "Vibe Controller"
+        )
+        XCTAssertEqual(
+            ProfileStore.defaultDirectoryName(bundleIdentifier: "com.vibe-controller.app.dev"),
+            "Vibe Controller Dev"
+        )
+        XCTAssertEqual(
+            ProfileStore.defaultDirectoryName(bundleIdentifier: nil),
+            "Vibe Controller Dev"
+        )
+    }
+
     func testLoadOrCreateSeedsDefaultDocument() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = ProfileStore(baseDirectoryURL: directory)

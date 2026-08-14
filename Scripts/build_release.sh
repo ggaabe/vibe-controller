@@ -40,12 +40,16 @@ fi
 if [[ "$RELEASE_MODE" == "distribution" ]]; then
   ARTIFACT_SUFFIX=""
   REQUIRE_DISTRIBUTION_SIGNING=1
+  APP_NAME="Vibe Controller"
+  BUNDLE_IDENTIFIER="com.vibe-controller.app"
 else
   ARTIFACT_SUFFIX="-development"
   REQUIRE_DISTRIBUTION_SIGNING=0
+  APP_NAME="Vibe Controller Dev"
+  BUNDLE_IDENTIFIER="com.vibe-controller.app.dev"
 fi
 
-APP_PATH="$RELEASE_DIR/Vibe Controller.app"
+APP_PATH="$RELEASE_DIR/$APP_NAME.app"
 SUPPORT_INSTALLER="$RELEASE_DIR/VibeController-VirtualHardwareSupport-$VERSION-$ARCHITECTURE$ARTIFACT_SUFFIX.pkg"
 DMG_PATH="$RELEASE_DIR/Vibe-Controller-$VERSION-$ARCHITECTURE$ARTIFACT_SUFFIX.dmg"
 CHECKSUM_PATH="$RELEASE_DIR/SHA256SUMS.txt"
@@ -139,12 +143,15 @@ VIBE_CONTROLLER_BUILD_NUMBER="$BUILD_NUMBER" \
 VIBE_CONTROLLER_BUILD_CONFIGURATION=release \
 VIBE_CONTROLLER_ARCH="$ARCHITECTURE" \
 VIBE_CONTROLLER_APP_OUTPUT="$APP_PATH" \
+VIBE_CONTROLLER_APP_NAME="$APP_NAME" \
+VIBE_CONTROLLER_BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \
 VIBE_CONTROLLER_SUPPORT_INSTALLER_PATH="$SUPPORT_INSTALLER" \
 VIBE_CONTROLLER_REQUIRE_DISTRIBUTION_SIGNING="$REQUIRE_DISTRIBUTION_SIGNING" \
   "$ROOT_DIR/Scripts/package_app.sh"
 
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")" == "$VERSION" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Contents/Info.plist")" == "$BUILD_NUMBER" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")" == "$BUNDLE_IDENTIFIER" ]]
 file "$APP_PATH/Contents/MacOS/VibeController" | grep -Fq "arm64"
 cmp \
   "$SUPPORT_INSTALLER" \
@@ -163,7 +170,7 @@ fi
 
 echo "Creating the disk image..."
 mkdir -p "$DMG_SOURCE" "$MOUNT_DIR"
-ditto "$APP_PATH" "$DMG_SOURCE/Vibe Controller.app"
+ditto "$APP_PATH" "$DMG_SOURCE/$APP_NAME.app"
 ln -s /Applications "$DMG_SOURCE/Applications"
 hdiutil create \
   -volname "Vibe Controller" \
@@ -201,8 +208,8 @@ hdiutil attach \
   -quiet
 IS_MOUNTED=1
 
-if [[ ! -d "$MOUNT_DIR/Vibe Controller.app" ]]; then
-  echo "The disk image does not contain Vibe Controller.app."
+if [[ ! -d "$MOUNT_DIR/$APP_NAME.app" ]]; then
+  echo "The disk image does not contain $APP_NAME.app."
   exit 1
 fi
 if [[ ! -L "$MOUNT_DIR/Applications" \
@@ -215,7 +222,7 @@ codesign \
   --deep \
   --strict \
   --verbose=2 \
-  "$MOUNT_DIR/Vibe Controller.app"
+  "$MOUNT_DIR/$APP_NAME.app"
 hdiutil detach "$MOUNT_DIR" -quiet
 IS_MOUNTED=0
 

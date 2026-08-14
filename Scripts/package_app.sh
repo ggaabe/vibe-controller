@@ -6,11 +6,23 @@ VERSION="${VIBE_CONTROLLER_VERSION:-0.1.0}"
 BUILD_NUMBER="${VIBE_CONTROLLER_BUILD_NUMBER:-1}"
 BUILD_CONFIGURATION="${VIBE_CONTROLLER_BUILD_CONFIGURATION:-debug}"
 ARCHITECTURE="${VIBE_CONTROLLER_ARCH:-arm64}"
-APP_DIR="${VIBE_CONTROLLER_APP_OUTPUT:-$ROOT_DIR/dist/Vibe Controller.app}"
 SUPPORT_INSTALLER="${VIBE_CONTROLLER_SUPPORT_INSTALLER_PATH:-}"
 SIGNING_IDENTITY="${VIBE_CONTROLLER_SIGNING_IDENTITY:-}"
 REQUIRE_DISTRIBUTION_SIGNING="${VIBE_CONTROLLER_REQUIRE_DISTRIBUTION_SIGNING:-0}"
 DEFAULT_SIGNING_IDENTITY="Apple Development: Gabriel Garrett (Q527MSL34N)"
+PRODUCTION_BUNDLE_IDENTIFIER="com.vibe-controller.app"
+
+if [[ "$REQUIRE_DISTRIBUTION_SIGNING" == "1" ]]; then
+  DEFAULT_APP_NAME="Vibe Controller"
+  DEFAULT_BUNDLE_IDENTIFIER="$PRODUCTION_BUNDLE_IDENTIFIER"
+else
+  DEFAULT_APP_NAME="Vibe Controller Dev"
+  DEFAULT_BUNDLE_IDENTIFIER="com.vibe-controller.app.dev"
+fi
+
+APP_NAME="${VIBE_CONTROLLER_APP_NAME:-$DEFAULT_APP_NAME}"
+BUNDLE_IDENTIFIER="${VIBE_CONTROLLER_BUNDLE_IDENTIFIER:-$DEFAULT_BUNDLE_IDENTIFIER}"
+APP_DIR="${VIBE_CONTROLLER_APP_OUTPUT:-$ROOT_DIR/dist/$APP_NAME.app}"
 
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VIBE_CONTROLLER_VERSION must use three numeric components (for example, 1.2.3): $VERSION"
@@ -34,6 +46,12 @@ fi
 
 if [[ "$REQUIRE_DISTRIBUTION_SIGNING" != "0" && "$REQUIRE_DISTRIBUTION_SIGNING" != "1" ]]; then
   echo "VIBE_CONTROLLER_REQUIRE_DISTRIBUTION_SIGNING must be 0 or 1."
+  exit 1
+fi
+
+if [[ "$REQUIRE_DISTRIBUTION_SIGNING" == "1" \
+  && ( "$APP_NAME" != "Vibe Controller" || "$BUNDLE_IDENTIFIER" != "$PRODUCTION_BUNDLE_IDENTIFIER" ) ]]; then
+  echo "Public releases must use the production app name and bundle identifier."
   exit 1
 fi
 
@@ -120,7 +138,7 @@ fi
 APP_PARENT="$(dirname "$APP_DIR")"
 mkdir -p "$APP_PARENT"
 WORK_DIR="$(mktemp -d "$APP_PARENT/.vibe-controller-app.XXXXXX")"
-STAGED_APP="$WORK_DIR/Vibe Controller.app"
+STAGED_APP="$WORK_DIR/$APP_NAME.app"
 
 cleanup() {
   rm -rf "$WORK_DIR"
@@ -153,13 +171,13 @@ cat > "$STAGED_APP/Contents/Info.plist" <<EOF
   <key>CFBundleExecutable</key>
   <string>VibeController</string>
   <key>CFBundleIdentifier</key>
-  <string>com.vibe-controller.app</string>
+  <string>$BUNDLE_IDENTIFIER</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Vibe Controller</string>
+  <string>$APP_NAME</string>
   <key>CFBundleDisplayName</key>
-  <string>Vibe Controller</string>
+  <string>$APP_NAME</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleIconName</key>
@@ -177,11 +195,11 @@ cat > "$STAGED_APP/Contents/Info.plist" <<EOF
     <string>_vibectl._tcp</string>
   </array>
   <key>NSAppleEventsUsageDescription</key>
-  <string>Vibe Controller uses System Events to trigger Mission Control and Space-switching shortcuts.</string>
+  <string>$APP_NAME uses System Events to trigger Mission Control and Space-switching shortcuts.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSLocalNetworkUsageDescription</key>
-  <string>Vibe Controller uses the local network to forward pointer and shortcut events between your Macs.</string>
+  <string>$APP_NAME uses the local network to forward pointer and shortcut events between your Macs.</string>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
   <key>NSPrincipalClass</key>
@@ -208,4 +226,4 @@ rm -rf "$APP_DIR"
 mv "$STAGED_APP" "$APP_DIR"
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
 
-echo "Packaged $APP_DIR (version $VERSION, build $BUILD_NUMBER, $ARCHITECTURE/$BUILD_CONFIGURATION)"
+echo "Packaged $APP_DIR (version $VERSION, build $BUILD_NUMBER, $BUNDLE_IDENTIFIER, $ARCHITECTURE/$BUILD_CONFIGURATION)"
