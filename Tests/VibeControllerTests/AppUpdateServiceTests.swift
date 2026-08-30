@@ -181,10 +181,10 @@ final class AppUpdateControlLayoutTests: XCTestCase {
             rootView: AppUpdateControlView(presentation: presentation) {}
         )
         let fittingSize = controller.sizeThatFits(
-            in: CGSize(width: 410, height: CGFloat.greatestFiniteMagnitude)
+            in: CGSize(width: 360, height: CGFloat.greatestFiniteMagnitude)
         )
 
-        XCTAssertLessThanOrEqual(fittingSize.width, 410)
+        XCTAssertLessThanOrEqual(fittingSize.width, 360)
         XCTAssertLessThanOrEqual(fittingSize.height, 56)
     }
 }

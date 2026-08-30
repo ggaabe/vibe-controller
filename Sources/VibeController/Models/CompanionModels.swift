@@ -11,6 +11,14 @@ enum CompanionMode: String, CaseIterable, Codable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
+    /// Native Universal Control is the product default. The legacy raw value is
+    /// retained so existing preferences and exported profiles remain compatible.
+    static let defaultMode: CompanionMode = .off
+
+    static func resolvedMode(from storedValue: String?) -> CompanionMode {
+        storedValue.flatMap(CompanionMode.init(rawValue:)) ?? defaultMode
+    }
+
     var displayName: String {
         switch self {
         case .off:
@@ -75,6 +83,13 @@ enum CompanionConnectionState: Equatable, Sendable {
         case .error(let message):
             return message
         }
+    }
+
+    var isConnected: Bool {
+        if case .connected = self {
+            return true
+        }
+        return false
     }
 }
 

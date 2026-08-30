@@ -6,15 +6,23 @@ struct ControllerDiagramView: View {
     @State private var isConfirmingLayerRemoval = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Controller Map")
-                    .font(.title2.weight(.semibold))
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                ProductSectionTitle(
+                    "Controller Map",
+                    subtitle: appModel.controllerSnapshot.isConnected
+                        ? "Select a control to change its action. Live input lights up in blue."
+                        : "Your mappings are ready while Vibe Controller waits for a gamepad.",
+                    symbol: "gamecontroller.fill"
+                )
                 Spacer()
                 if appModel.controllerSnapshot.isConnected {
-                    Text("Click any control to remap. Live input highlights in blue.")
-                        .font(.footnote.weight(.medium))
+                    Text(appModel.controllerSnapshot.controllerFamily == .playStation ? "PlayStation layout" : "Xbox layout")
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.secondary.opacity(0.08), in: Capsule())
                 }
             }
 
@@ -77,16 +85,13 @@ struct ControllerDiagramView: View {
             .frame(minHeight: 40)
 
             ControllerCanvas(canvasColors: canvasColors, borderColor: borderColor)
-                .frame(minHeight: 460, idealHeight: 540, maxHeight: 600)
+                .frame(minHeight: 450, idealHeight: 530, maxHeight: 590)
                 .contentShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
                 .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(22)
-        .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
+        .productPanel()
+        .accessibilityIdentifier("workspace.controller-map")
         .confirmationDialog(
             "Remove modifier layer?",
             isPresented: $isConfirmingLayerRemoval

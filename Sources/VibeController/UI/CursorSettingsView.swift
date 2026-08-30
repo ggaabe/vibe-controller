@@ -5,11 +5,14 @@ struct CursorSettingsView: View {
     @State private var advancedExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Cursor")
-                .font(.title2.weight(.semibold))
+        VStack(alignment: .leading, spacing: 16) {
+            ProductSectionTitle(
+                "Cursor",
+                subtitle: "Tune everyday and precision movement.",
+                symbol: "cursorarrow.motionlines"
+            )
 
-            VStack(spacing: 14) {
+            VStack(spacing: 12) {
                 Picker("Primary cursor stick", selection: appModel.primaryStickBinding()) {
                     ForEach(StickAssignment.allCases) { assignment in
                         Text(assignment.displayName).tag(assignment)
@@ -29,6 +32,19 @@ struct CursorSettingsView: View {
                 range: 400...4200,
                 formatter: { "\(Int($0.rounded())) px/s" }
             )
+
+            Toggle(isOn: appModel.cursorBinding(\.zoomGestureEnabled)) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("A / × + left stick zoom")
+                    Text("Hold the bottom face button, then move the left stick up or down. A quick tap still clicks.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .frame(minHeight: 40)
+            .accessibilityHint("Uses the left stick to zoom while the bottom face button is held.")
 
             Toggle(isOn: appModel.cursorBinding(\.flickBoostEnabled)) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -96,14 +112,9 @@ struct CursorSettingsView: View {
                 }
                 .padding(.top, 10)
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(22)
-        .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
+        .productPanel()
+        .accessibilityIdentifier("settings.cursor")
     }
 }
 
@@ -120,6 +131,8 @@ struct SliderSettingRow: View {
                 Spacer()
                 Text(formatter(value))
                     .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
             }
             Slider(value: $value, in: range)
         }

@@ -157,7 +157,12 @@ final class AppModel: ObservableObject {
         self.accessibilityRepairRecommended = permissionManager.accessibilityRepairRecommended
         self.isRuntimeEnabled = profileStore.loadEnabledState()
         self.isAppFrontmost = NSApp.isActive
-        self.companionMode = CompanionMode(rawValue: userDefaults.string(forKey: Self.companionModeKey) ?? "") ?? .off
+        userDefaults.register(defaults: [
+            Self.companionModeKey: CompanionMode.defaultMode.rawValue,
+        ])
+        self.companionMode = CompanionMode.resolvedMode(
+            from: userDefaults.string(forKey: Self.companionModeKey)
+        )
         self.companionEdge = CompanionEdge(rawValue: userDefaults.string(forKey: Self.companionEdgeKey) ?? "") ?? .right
         self.selectedCompanionPeerID = userDefaults.string(forKey: Self.selectedPeerKey)
 

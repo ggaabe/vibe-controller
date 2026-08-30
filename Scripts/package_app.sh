@@ -135,6 +135,15 @@ if [[ ! -f "$SUPPORT_INSTALLER" ]]; then
   exit 1
 fi
 
+if [[ "$REQUIRE_DISTRIBUTION_SIGNING" == "1" ]]; then
+  SUPPORT_SIGNATURE="$(pkgutil --check-signature "$SUPPORT_INSTALLER" 2>&1 || true)"
+  if ! grep -Fq "Status: signed by a developer certificate issued by Apple for distribution" <<< "$SUPPORT_SIGNATURE"; then
+    echo "Public releases require a Developer ID Installer-signed Virtual Hardware Support package."
+    echo "$SUPPORT_SIGNATURE"
+    exit 1
+  fi
+fi
+
 APP_PARENT="$(dirname "$APP_DIR")"
 mkdir -p "$APP_PARENT"
 WORK_DIR="$(mktemp -d "$APP_PARENT/.vibe-controller-app.XXXXXX")"

@@ -55,13 +55,13 @@ Local builds are deliberately named **Vibe Controller Dev**, use `com.vibe-contr
 2. The app checks setup automatically and requests Accessibility. Approve Vibe Controller in **System Settings → Privacy & Security → Accessibility**. If an upgraded copy already appears enabled but the app still reports that access is missing, remove the old row with **−**, reopen Vibe Controller, and enable the newly added row.
 3. The bundled **Virtual Hardware Support** installer opens automatically. Approve its one-time administrator prompt.
 4. Vibe Controller requests Driver Extension activation and keeps Step 3 visible at the top of its window. Choose **Open Driver Settings**, open **Extensions**, find **.Karabiner‑VirtualHIDDevice‑Manager Driver Extension**, click **Show Detail**, and enable **Provides additional functionality for system drivers**.
-5. Return to Vibe Controller. It polls each gate and advances on its own; the Cross-Mac card finishes at **Cross-Mac input is ready**.
+5. Return to Vibe Controller. It polls each gate and advances on its own; the Universal Control panel finishes at **Native handoff — Virtual mouse and keyboard are active**.
 6. Confirm that the header reports the controller as connected, then move the sticks and press buttons while watching the live diagnostics and blue controller-map highlights.
 7. Click any control on the map to change its action or shortcut, and adjust cursor response in the Cursor panel as desired.
 
 The app requests each missing step only once per launch so it does not trap users in repeated system dialogs. A persistent setup banner stays above the scrollable controller workspace until every gate is complete, so **Open Accessibility Settings**, **Open Installer**, **Open Driver Settings**, and **Check Again** remain reachable at every supported window size. Returning from System Settings refreshes the current permission and repeats any still-pending instructions. macOS intentionally requires a person to approve Accessibility, the administrator install, and the Driver Extension; the app can detect and open those gates but cannot silently bypass Touch ID or the account password.
 
-Profiles are saved locally at `~/Library/Application Support/Vibe Controller/profiles.json`. Use **Import Profile** and **Export Profile** to move an individual profile between Macs.
+Profiles are saved locally at `~/Library/Application Support/Vibe Controller/profiles.json`. Open **Manage Profile** in the footer, then use **Import Profile** or **Export Profile** to move an individual profile between Macs.
 
 ## Universal Control between Macs
 
@@ -71,9 +71,9 @@ Only the lead, controller-connected Mac needs Vibe Controller for this mode. The
 
 1. Set up Universal Control on both Macs using [Apple's instructions](https://support.apple.com/en-us/102459). The Macs should already let the lead Mac's trackpad move through the chosen display edge.
 2. Complete the automatic three-step setup shown in Vibe Controller. This installs the open-source [Karabiner DriverKit VirtualHIDDevice](https://github.com/pqrs-org/Karabiner-DriverKit-VirtualHIDDevice) and Vibe Controller's signed bridge, then requests the required macOS approvals.
-3. Wait for the Cross-Mac card to say **Cross-Mac input is ready**.
+3. Wait for the Universal Control panel to show a green **Native handoff** status.
 4. Connect the Xbox or PlayStation controller to the lead Mac. USB is recommended: supported Microsoft Xbox, Sony DualSense, and Sony DualShock 4 USB devices use a direct HID reader that remains active while Universal Control owns the pointer on the second Mac.
-5. Leave **Cross-Mac Control → Mode** set to **Native Universal Control**. Move the primary stick through the same left or right edge used by Universal Control. Keep holding the stick and the pointer will continue across the second Mac.
+5. Leave the recommended native handoff active; fresh installs select it automatically. Move the primary stick through the same left or right edge used by Universal Control. Keep holding the stick and the pointer will continue across the second Mac.
 6. Click, scroll, dictate, capture a screenshot, or start an LT drag after the pointer arrives on the second Mac. Those mapped actions follow the Universal Control pointer target.
 7. Push back through the corresponding edge to return to the lead Mac.
 
@@ -107,7 +107,7 @@ PlayStation controllers use the same physical-position mappings: Cross/Circle/Sq
 | LB | Escape / modifier | Tap for `Esc`; hold with a D-pad direction to cross the matching Universal Control edge |
 | RT | Voice dictation | Holds the `Fn` key; configure macOS Dictation to use the Fn shortcut if needed |
 | RB | Right click | Standard secondary click |
-| A | Left click | Standard primary click |
+| A / Cross | Left click / zoom gesture | Tap for a standard primary click; hold and move the left stick up or down to zoom |
 | B | Area screenshot to clipboard | Sends `⌃⇧⌘4`; drag over an area, then paste the screenshot |
 | X | TextSniper OCR capture | Sends `⇧⌘2`; drag over text to OCR it into the clipboard |
 | Y | Paste | Sends `⌘V` |
@@ -119,7 +119,7 @@ PlayStation controllers use the same physical-position mappings: Cross/Circle/Sq
 | Menu | New tab | Sends `⌘T` |
 | Home | Close tab or window | Sends `⌘W`; disable any competing Home-button action in macOS Game Controller settings |
 
-The cursor profile enables acceleration with a `0.12` dead zone, `1.8` response curve, `0.5` smoothing, neutral axis multipliers, and flick boost disabled.
+The cursor profile enables acceleration with a `0.12` dead zone, `1.8` response curve, `0.5` smoothing, neutral axis multipliers, and flick boost disabled. The A / Cross zoom gesture is enabled by default: vertical stick tilt controls the repeat rate, diagonal vertical movement is accepted, and ordinary left-stick cursor movement pauses until the gesture ends. It sends standard app zoom shortcuts through the same virtual keyboard used by Universal Control, so it also works in compatible apps on the other Mac.
 
 ### Recommended OCR companion
 
@@ -173,7 +173,7 @@ Gabe's Defaults ships with the current modifier setup already configured:
 
 Companion mode can forward cursor motion, clicks, scrolling, shortcuts, and Space-switch actions over the local network. It is an advanced fallback for Macs that cannot use native Universal Control; most two-Mac setups should use the Universal Control instructions above.
 
-1. Run Vibe Controller on both Macs.
+1. Run Vibe Controller on both Macs and expand **Universal Control → Advanced connection mode**.
 2. Set one Mac to **Receiver Mac**.
 3. Set the controller-connected Mac to **Controller Mac**.
 4. Choose the handoff edge and receiver, then connect.

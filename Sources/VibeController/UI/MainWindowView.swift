@@ -8,40 +8,43 @@ struct MainWindowView: View {
     @State private var isImporting = false
     @State private var isExporting = false
     @State private var exportDocument: ExportProfileDocument?
+    @State private var diagnosticsExpanded = false
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 0) {
             header
                 .zIndex(2)
+            Divider()
             if let presentation = appModel.setupBannerPresentation {
                 SetupBannerView(presentation: presentation) { action in
                     appModel.performSetupAction(action)
                 }
+                .padding(.horizontal, MainWindowLayoutMetrics.horizontalPadding)
+                .padding(.top, 14)
+                .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(2)
             }
             ScrollView(.vertical) {
-                VStack(spacing: 18) {
-                    diagnosticsStrip
-                    content
-                        .frame(maxWidth: .infinity, alignment: .top)
-                }
-                .padding(.bottom, 2)
+                content
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .padding(MainWindowLayoutMetrics.horizontalPadding)
             }
             .scrollIndicators(.automatic)
             .zIndex(0)
+            Divider()
             footer
                 .zIndex(2)
         }
-        .padding(20)
         .background(
             LinearGradient(
                 colors: colorScheme == .dark
-                    ? [Color(red: 0.10, green: 0.11, blue: 0.13), Color(red: 0.07, green: 0.08, blue: 0.10)]
+                    ? [Color(red: 0.095, green: 0.105, blue: 0.125), Color(red: 0.055, green: 0.06, blue: 0.075)]
                     : [Color(NSColor.windowBackgroundColor), Color(nsColor: .underPageBackgroundColor)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
         )
+        .animation(.easeOut(duration: 0.2), value: appModel.setupBannerPresentation?.title)
         .sheet(item: $appModel.presentedSheet) { selection in
             switch selection {
             case .mapping(let control, let layer):
@@ -79,144 +82,171 @@ struct MainWindowView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
+        HStack(spacing: 16) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 42, height: 42)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
                 Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Vibe Controller")
-                    .font(.system(size: 28, weight: .semibold, design: .rounded))
-                Text(appModel.controllerSnapshot.controllerName ?? "Waiting for controller")
-                    .font(.headline)
-                HStack(spacing: 10) {
+                    .font(.title2.weight(.semibold))
+                HStack(spacing: 8) {
+                    Text(appModel.controllerSnapshot.controllerName ?? "Connect an Xbox or PlayStation controller")
+                        .lineLimit(1)
                     if let connection = appModel.controllerSnapshot.connectionSummary {
-                        Label(connection, systemImage: "cable.connector")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        Text("·")
+                        Text(connection)
                     }
                     if let battery = appModel.batterySummary {
+                        Text("·")
                         Label(battery, systemImage: "battery.75")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
                     }
                 }
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 12) {
-                StatusBadgeView(state: appModel.statusBadgeState)
-                HStack(spacing: 8) {
-                    Label(appModel.runtimeStatusText, systemImage: appModel.isRuntimeEnabled ? "power.circle.fill" : "power.circle")
-                    Label(appModel.listeningStatusText, systemImage: "gamecontroller.fill")
-                }
-                .font(.footnote.weight(.medium))
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
-                Picker("Profile", selection: Binding(
-                    get: { appModel.activeProfileID },
-                    set: { appModel.selectProfile($0) }
-                )) {
-                    ForEach(appModel.availableProfiles) { profile in
-                        Text(profile.name).tag(profile.id)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(width: 220)
             }
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
-    }
 
-    private var diagnosticsStrip: some View {
-        HStack(spacing: 12) {
-            LiveControllerCard()
-                .environmentObject(appModel)
-            DiagnosticCard(
-                title: "Cursor",
-                value: appModel.cursorDiagnostics.state.rawValue.capitalized,
-                detail: appModel.cursorDiagnostics.message,
-                symbol: "cursorarrow.motionlines",
-                tint: appModel.cursorDiagnostics.state == .moving ? .blue : .secondary
-            )
-            DiagnosticCard(
-                title: "Actions",
-                value: appModel.lastActionStatus,
-                detail: "Space switching and desktop action feedback.",
-                symbol: "sparkles",
-                tint: .secondary
-            )
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Test")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Button("Test Cross-Mac Sweep") {
-                    appModel.testCursorNudge()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
+            Spacer()
 
-                Button("Test Left Click") {
-                    appModel.testLeftClick()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            StatusBadgeView(state: appModel.statusBadgeState)
 
-                Button("Capture Remote Proof") {
-                    appModel.captureRemoteProof()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(!appModel.virtualHardwareReady)
+            Toggle(isOn: Binding(
+                get: { appModel.isRuntimeEnabled },
+                set: { appModel.setRuntimeEnabled($0) }
+            )) {
+                Text("Enabled")
+                    .font(.subheadline.weight(.medium))
             }
-            .frame(width: 200, alignment: .leading)
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color(NSColor.controlBackgroundColor))
-            )
+            .toggleStyle(.switch)
+            .disabled(!appModel.accessibilityTrusted)
+            .help("Enable or pause controller input without closing the app.")
+
+            Divider()
+                .frame(height: 32)
+
+            Picker("Profile", selection: Binding(
+                get: { appModel.activeProfileID },
+                set: { appModel.selectProfile($0) }
+            )) {
+                ForEach(appModel.availableProfiles) { profile in
+                    Text(profile.name).tag(profile.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(width: 210)
         }
+        .padding(.horizontal, MainWindowLayoutMetrics.horizontalPadding)
+        .padding(.vertical, 13)
+        .background(.bar)
+        .accessibilityIdentifier("workspace.header")
     }
 
     private var content: some View {
-        HStack(alignment: .top, spacing: 20) {
-            VStack(spacing: 16) {
+        HStack(alignment: .top, spacing: 18) {
+            VStack(spacing: 14) {
                 CursorSettingsView()
                     .environmentObject(appModel)
-                    .frame(width: 360)
+                    .frame(width: MainWindowLayoutMetrics.inspectorWidth)
 
                 CompanionSettingsView()
                     .environmentObject(appModel)
-                    .frame(width: 360)
+                    .frame(width: MainWindowLayoutMetrics.inspectorWidth)
             }
 
-            VStack(spacing: 16) {
+            VStack(spacing: 14) {
                 ControllerDiagramView()
                     .environmentObject(appModel)
                     .frame(maxWidth: .infinity, alignment: .top)
                 if !appModel.controllerSnapshot.isConnected {
                     NoControllerHelpView()
                 }
+                diagnosticsAndTesting
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 
+    private var diagnosticsAndTesting: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    diagnosticsExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "waveform.path.ecg")
+                        .foregroundStyle(Color.accentColor)
+                    Text("Diagnostics & Testing")
+                        .font(.headline.weight(.semibold))
+                    Text(appModel.listeningStatusText)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(diagnosticsExpanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("workspace.diagnostics.toggle")
+
+            if diagnosticsExpanded {
+                Divider()
+                    .padding(.vertical, 14)
+
+                VStack(spacing: 12) {
+                    HStack(alignment: .top, spacing: 12) {
+                        LiveControllerCard()
+                            .environmentObject(appModel)
+                        DiagnosticCard(
+                            title: "Cursor",
+                            value: appModel.cursorDiagnostics.state.rawValue.capitalized,
+                            detail: appModel.cursorDiagnostics.message,
+                            symbol: "cursorarrow.motionlines",
+                            tint: appModel.cursorDiagnostics.state == .moving ? .blue : .secondary
+                        )
+                        DiagnosticCard(
+                            title: "Last action",
+                            value: appModel.lastActionStatus,
+                            detail: "Live feedback from shortcuts and cross-screen actions.",
+                            symbol: "sparkles",
+                            tint: .secondary
+                        )
+                    }
+
+                    HStack(spacing: 10) {
+                        Text("Hardware checks")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Cross-Mac Sweep") { appModel.testCursorNudge() }
+                            .buttonStyle(.borderedProminent)
+                        Button("Left Click") { appModel.testLeftClick() }
+                            .buttonStyle(.bordered)
+                        Button("Capture Remote Proof") { appModel.captureRemoteProof() }
+                            .buttonStyle(.bordered)
+                            .disabled(!appModel.virtualHardwareReady)
+                    }
+                    .controlSize(.regular)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .productPanel(padding: 16)
+    }
+
     private var footer: some View {
         HStack(spacing: 12) {
-            Button("Enable") {
-                appModel.setRuntimeEnabled(true)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!appModel.accessibilityTrusted || appModel.isRuntimeEnabled)
-
-            Button("Disable") {
-                appModel.setRuntimeEnabled(false)
-            }
-            .buttonStyle(.bordered)
-            .disabled(!appModel.isRuntimeEnabled)
-
-            Button("Reset to Defaults") {
-                appModel.resetActiveProfileToDefaults()
-            }
+            Label(
+                appModel.virtualHardwareReady ? "Universal Control ready" : appModel.virtualHardwareSetupTitle,
+                systemImage: appModel.virtualHardwareReady ? "checkmark.circle.fill" : "gearshape.2"
+            )
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(appModel.virtualHardwareReady ? Color.green : .secondary)
 
             Spacer()
 
@@ -232,20 +262,33 @@ struct MainWindowView: View {
                 action: appModel.performPrimaryUpdateAction
             )
 
-            Button("Import Profile") {
-                isImporting = true
-            }
-
-            Button("Export Profile") {
-                do {
-                    exportDocument = try ExportProfileDocument(profile: appModel.activeProfile)
-                    isExporting = true
-                } catch {
-                    appModel.lastErrorMessage = error.localizedDescription
+            Menu {
+                Button("Import Profile…") {
+                    isImporting = true
                 }
+                Button("Export Profile…") {
+                    prepareProfileExport()
+                }
+                Divider()
+                Button("Reset Profile to Defaults", role: .destructive) {
+                    appModel.resetActiveProfileToDefaults()
+                }
+            } label: {
+                Label("Manage Profile", systemImage: "ellipsis.circle")
             }
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, MainWindowLayoutMetrics.horizontalPadding)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    private func prepareProfileExport() {
+        do {
+            exportDocument = try ExportProfileDocument(profile: appModel.activeProfile)
+            isExporting = true
+        } catch {
+            appModel.lastErrorMessage = error.localizedDescription
+        }
     }
 }
 
@@ -286,7 +329,7 @@ struct AppUpdateControlView: View {
                     .disabled(presentation.isBusy)
             }
         }
-        .frame(width: 410, alignment: .trailing)
+        .frame(width: 360, alignment: .trailing)
         .help("Checks the signed Vibe Controller releases on GitHub and installs updates in place.")
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("updates.control")
@@ -330,7 +373,7 @@ private struct LiveControllerCard: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
+                .fill(Color.secondary.opacity(0.065))
         )
     }
 }
@@ -359,7 +402,7 @@ private struct DiagnosticCard: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
+                .fill(Color.secondary.opacity(0.065))
         )
     }
 }
@@ -517,15 +560,10 @@ struct SetupBannerView: View {
             }
             .frame(minWidth: 210, alignment: .trailing)
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-                .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
-        )
+        .productPanel(padding: 16)
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(tint.opacity(0.18), lineWidth: 1)
+                .stroke(tint.opacity(0.28), lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("setup.banner")
@@ -536,8 +574,9 @@ enum MainWindowLayoutMetrics {
     static let minimumWidth: CGFloat = 1_180
     static let minimumHeight: CGFloat = 760
     static let defaultWidth: CGFloat = 1_280
-    static let defaultHeight: CGFloat = 820
+    static let defaultHeight: CGFloat = 840
     static let horizontalPadding: CGFloat = 20
+    static let inspectorWidth: CGFloat = 332
 }
 
 private struct NoControllerHelpView: View {
@@ -545,168 +584,144 @@ private struct NoControllerHelpView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("No controller detected")
                 .font(.headline)
-            Text("Connect your Xbox controller by Bluetooth or USB, then open System Settings → Game Controllers to verify macOS can see it.")
+            Text("Connect an Xbox or PlayStation controller by Bluetooth or USB, then open System Settings → Game Controllers if macOS does not detect it.")
                 .foregroundStyle(.secondary)
             Button("Open System Settings") {
                 NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
+        .productPanel()
     }
 }
 
 private struct CompanionSettingsView: View {
     @EnvironmentObject private var appModel: AppModel
+    @State private var advancedExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Cross-Mac Control")
-                    .font(.headline)
-                Spacer()
-                Text(appModel.companionStatusText)
-                    .font(.caption.weight(.semibold))
+            ProductSectionTitle(
+                "Universal Control",
+                subtitle: "Move through every nearby Mac from this one.",
+                symbol: "rectangle.connected.to.line.below"
+            )
+
+            if appModel.companionMode == .off {
+                ReadinessRow(
+                    title: "Native handoff",
+                    detail: appModel.virtualHardwareReady
+                        ? "Virtual mouse and keyboard are active."
+                        : appModel.virtualHardwareSetupTitle,
+                    isReady: appModel.virtualHardwareReady
+                )
+
+                Text("Recommended. Vibe Controller uses virtual hardware on this lead Mac so Apple Universal Control keeps forwarding movement after the pointer crosses an edge.")
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Label("Nothing to install on your other Macs", systemImage: "checkmark")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+
+                if !appModel.virtualHardwareReady {
+                    Text("Finish the guided setup above. Vibe Controller will recheck the permission and driver automatically when you return.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                ReadinessRow(
+                    title: appModel.companionMode.displayName,
+                    detail: appModel.companionStatusText,
+                    isReady: appModel.companionConnectionState.isConnected
+                )
             }
 
-            Picker("Mode", selection: Binding(
-                get: { appModel.companionMode },
-                set: { appModel.setCompanionMode($0) }
+            Divider()
+
+            DisclosureGroup("Advanced connection mode", isExpanded: $advancedExpanded) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Use the network fallback only when Apple Universal Control is unavailable. It requires Vibe Controller on both Macs.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Picker("Connection", selection: Binding(
+                        get: { appModel.companionMode },
+                        set: { appModel.setCompanionMode($0) }
+                    )) {
+                        ForEach(CompanionMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    if appModel.companionMode == .controller {
+                        controllerMacControls
+                    } else if appModel.companionMode == .receiver {
+                        Text("This Mac advertises itself on the local network and accepts forwarded pointer, click, scroll, and shortcut events.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if appModel.companionMode != .off {
+                        Text(appModel.companionRemoteBuildSummary)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(2)
+                    }
+                }
+                .padding(.top, 10)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .productPanel()
+        .accessibilityIdentifier("settings.universal-control")
+        .onAppear {
+            advancedExpanded = appModel.companionMode != .off
+        }
+        .onChange(of: appModel.companionMode) { _, mode in
+            if mode != .off {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    advancedExpanded = true
+                }
+            }
+        }
+    }
+
+    private var controllerMacControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("Handoff edge", selection: Binding(
+                get: { appModel.companionEdge },
+                set: { appModel.setCompanionEdge($0) }
             )) {
-                ForEach(CompanionMode.allCases) { mode in
-                    Text(mode.displayName).tag(mode)
+                ForEach(CompanionEdge.allCases) { edge in
+                    Text(edge.displayName).tag(edge)
                 }
             }
             .pickerStyle(.menu)
 
-            if appModel.companionMode == .off {
-                Label("Uses virtual mouse hardware on the lead Mac so Universal Control keeps forwarding motion after the pointer crosses. The other Mac does not need Vibe Controller.", systemImage: "rectangle.connected.to.line.below")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                Text(appModel.nativeUniversalControlStatusText)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Image(systemName: appModel.virtualHardwareReady ? "checkmark.circle.fill" : "gearshape.2.fill")
-                            .foregroundStyle(appModel.virtualHardwareReady ? .green : .orange)
-                        Text(appModel.virtualHardwareSetupTitle)
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        if let step = appModel.virtualHardwareSetupStepLabel {
-                            Text(step)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Text(appModel.virtualHardwareSetupDetail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if !appModel.virtualHardwareReady {
-                        Label("Complete setup using the persistent instructions above.", systemImage: "arrow.up")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
+            Picker("Receiver", selection: Binding(
+                get: { appModel.selectedCompanionPeerID ?? "" },
+                set: { appModel.selectCompanionPeer($0.isEmpty ? nil : $0) }
+            )) {
+                Text("Auto / first available").tag("")
+                ForEach(appModel.discoveredCompanionPeers) { peer in
+                    Text(peer.name).tag(peer.id)
                 }
-                .padding(10)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.secondary.opacity(0.08))
-                )
-            } else if appModel.companionMode == .controller {
-                Picker("Handoff edge", selection: Binding(
-                    get: { appModel.companionEdge },
-                    set: { appModel.setCompanionEdge($0) }
-                )) {
-                    ForEach(CompanionEdge.allCases) { edge in
-                        Text(edge.displayName).tag(edge)
-                    }
-                }
-                .pickerStyle(.menu)
+            }
+            .pickerStyle(.menu)
 
-                Picker("Receiver", selection: Binding(
-                    get: { appModel.selectedCompanionPeerID ?? "" },
-                    set: { appModel.selectCompanionPeer($0.isEmpty ? nil : $0) }
-                )) {
-                    Text("Auto / first available").tag("")
-                    ForEach(appModel.discoveredCompanionPeers) { peer in
-                        Text(peer.name).tag(peer.id)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                HStack(spacing: 10) {
-                    Button("Connect") {
-                        appModel.connectSelectedCompanionPeer()
-                    }
+            HStack(spacing: 8) {
+                Button("Connect") { appModel.connectSelectedCompanionPeer() }
                     .disabled(appModel.discoveredCompanionPeers.isEmpty)
-
-                    Button("Disconnect") {
-                        appModel.disconnectCompanion()
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    Button("Force Handoff") {
-                        appModel.forceCompanionHandoff()
-                    }
-                    .disabled({
-                        if case .connected = appModel.companionConnectionState {
-                            return false
-                        }
-                        return true
-                    }())
-
-                    Button("Return Local") {
-                        appModel.forceReturnLocal()
-                    }
-                }
-            } else if appModel.companionMode == .receiver {
-                Text("Run this mode on the second Mac. It advertises itself on the local network and accepts forwarded pointer, click, scroll, and shortcut events.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Button("Disconnect") { appModel.disconnectCompanion() }
+                Button("Test Handoff") { appModel.forceCompanionHandoff() }
+                    .disabled(!appModel.companionConnectionState.isConnected)
             }
-
-            if appModel.companionMode != .off {
-                Text("This is the advanced route: when the local cursor pushes through the selected edge, Vibe Controller forwards motion and desktop actions to the other Mac until the remote cursor reaches the return edge.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Peer metadata")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(appModel.companionRemoteBuildSummary)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                    Text("Handoff debug")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(appModel.companionHandoffDebug)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                }
-            }
+            .controlSize(.small)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
     }
 }
