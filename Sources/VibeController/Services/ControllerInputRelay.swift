@@ -5,6 +5,7 @@ private struct ControllerActionState: Equatable, Sendable {
     var pressedControls: Set<ControllerControlID>
     var leftTriggerActive: Bool
     var rightTriggerActive: Bool
+    var zoomGestureDirection: StickZoomDirection?
 }
 
 extension ControllerSnapshot {
@@ -26,7 +27,10 @@ extension ControllerSnapshot {
             isConnected: isConnected,
             pressedControls: pressedControls,
             leftTriggerActive: value(for: .leftTrigger) >= 0.18,
-            rightTriggerActive: value(for: .rightTrigger) >= 0.18
+            rightTriggerActive: value(for: .rightTrigger) >= 0.18,
+            zoomGestureDirection: pressedControls.contains(.buttonSouth)
+                ? CursorMath.zoomGestureSample(stick: leftStick)?.direction
+                : nil
         )
     }
 }

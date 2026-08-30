@@ -3,6 +3,15 @@ import Foundation
 
 @MainActor
 final class ActionEngine {
+    private static let zoomInShortcut = ShortcutDescriptor(
+        keyCode: 24,
+        modifiers: [.shift, .command]
+    )
+    private static let zoomOutShortcut = ShortcutDescriptor(
+        keyCode: 27,
+        modifiers: [.command]
+    )
+
     private struct RecentTap {
         let mapping: ControllerActionMapping
         let sourceModifier: ControllerControlID?
@@ -66,7 +75,11 @@ final class ActionEngine {
         }
 
         let newlyPressed = actuatedControls.subtracting(previousPressedControls)
-        let modifierControls = profile.modifierLayers.map(\.modifierControl)
+        var modifierControls = profile.modifierLayers.map(\.modifierControl)
+        if profile.cursor.zoomGestureEnabled,
+           !modifierControls.contains(.buttonSouth) {
+            modifierControls.append(.buttonSouth)
+        }
         var handledPresses = Set<ControllerControlID>()
 
         // Arm modifiers before resolving other buttons so a single controller
@@ -84,6 +97,13 @@ final class ActionEngine {
             handledPresses.insert(modifierControl)
         }
 
+        if profile.cursor.zoomGestureEnabled,
+           actuatedControls.contains(.buttonSouth),
+           let direction = CursorMath.zoomGestureSample(stick: snapshot.leftStick)?.direction {
+            consumedModifierControls.insert(.buttonSouth)
+            onActionStatus?("A + Left Stick: \(direction.displayName)")
+        }
+
         for control in ControllerControlID.mappingControls
         where newlyPressed.contains(control) && !handledPresses.contains(control) {
             press(
@@ -94,6 +114,17 @@ final class ActionEngine {
         }
 
         previousPressedControls = actuatedControls
+    }
+
+    func performZoomStep(_ direction: StickZoomDirection) {
+        guard isEnabled, accessibilityTrusted, !suspendActionExecution else { return }
+        let shortcut = direction == .zoomIn
+            ? Self.zoomInShortcut
+            : Self.zoomOutShortcut
+        if dispatchToCompanion(.shortcut(shortcut, phase: .tap)) {
+            return
+        }
+        postShortcutTap(shortcut)
     }
 
     func cancelAll() {

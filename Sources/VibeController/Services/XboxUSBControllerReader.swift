@@ -296,6 +296,12 @@ private enum DirectUSBControllerKind: Equatable {
 /// higher-level GameController state can pause when Universal Control moves
 /// pointer ownership to another Mac; the source Mac's USB HID stream does not.
 final class XboxUSBControllerReader: @unchecked Sendable {
+    /// Some wired Xbox controllers intermittently omit the Guide-button release
+    /// packet. Keep normal press/release semantics when the packet arrives, but
+    /// never let one missing packet leave Home latched for the rest of the app
+    /// session.
+    private static let homeReleaseFallbackDelay = 0.35
+
     var onConnectionChanged: (@Sendable (Bool, String?, ControllerFamily) -> Void)?
     var onInput: (@Sendable (XboxUSBInputState) -> Void)?
 
@@ -305,6 +311,7 @@ final class XboxUSBControllerReader: @unchecked Sendable {
     private var deviceKinds: [ObjectIdentifier: DirectUSBControllerKind] = [:]
     private var latestState = XboxUSBInputState()
     private var hasReceivedStandardInput = false
+    private var pendingHomeRelease: DispatchWorkItem?
     private var isStarted = false
 
     init(queue: DispatchQueue) {
@@ -352,6 +359,7 @@ final class XboxUSBControllerReader: @unchecked Sendable {
     }
 
     deinit {
+        pendingHomeRelease?.cancel()
         IOHIDManagerCancel(manager)
         IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
     }
@@ -375,6 +383,8 @@ final class XboxUSBControllerReader: @unchecked Sendable {
         guard matchedDeviceIDs.remove(deviceID) != nil else { return }
         deviceKinds[deviceID] = nil
         hasReceivedStandardInput = false
+        pendingHomeRelease?.cancel()
+        pendingHomeRelease = nil
         latestState = XboxUSBInputState()
         if matchedDeviceIDs.isEmpty {
             onConnectionChanged?(false, nil, .generic)
@@ -414,11 +424,36 @@ final class XboxUSBControllerReader: @unchecked Sendable {
         }
         guard hasReceivedStandardInput else { return }
 
+        if kind == .xbox, reportID == 0x07 {
+            updateHomeReleaseFallback(for: parsed)
+        }
+
         guard receivedFirstStandardReport || inputChangedMeaningfully(from: latestState, to: parsed) else {
             return
         }
         latestState = parsed
         onInput?(parsed)
+    }
+
+    private func updateHomeReleaseFallback(for state: XboxUSBInputState) {
+        pendingHomeRelease?.cancel()
+        pendingHomeRelease = nil
+
+        guard state.pressedControls.contains(.home) else { return }
+
+        let release = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.latestState.pressedControls.contains(.home) else { return }
+            self.latestState.pressedControls.remove(.home)
+            self.latestState.analogValues[.home] = 0
+            self.pendingHomeRelease = nil
+            self.onInput?(self.latestState)
+        }
+        pendingHomeRelease = release
+        queue.asyncAfter(
+            deadline: .now() + Self.homeReleaseFallbackDelay,
+            execute: release
+        )
     }
 
     private func readCurrentStandardInput(

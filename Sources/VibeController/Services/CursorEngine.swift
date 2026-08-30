@@ -32,6 +32,7 @@ struct CursorDiagnostics: Sendable {
 final class CursorEngine: @unchecked Sendable {
     typealias DiagnosticsHandler = @MainActor @Sendable (CursorDiagnostics) -> Void
     typealias MovementInterceptor = @MainActor @Sendable (CGPoint, SIMD2<Double>) -> Bool
+    typealias ZoomStepHandler = @MainActor @Sendable (StickZoomDirection) -> Void
 
     let universalControlInputBridge: UniversalControlInputBridge
     private nonisolated let motionLoop: CursorMotionLoop
@@ -50,6 +51,9 @@ final class CursorEngine: @unchecked Sendable {
     }
     var movementInterceptor: MovementInterceptor? {
         didSet { motionLoop.setMovementInterceptor(movementInterceptor) }
+    }
+    var onZoomStep: ZoomStepHandler? {
+        didSet { motionLoop.setZoomStepHandler(onZoomStep) }
     }
 
     var isDraggingLeftMouse: Bool {
@@ -195,10 +199,13 @@ private final class CursorMotionLoop: @unchecked Sendable {
     private var lastDiagnosticsMessage: String?
     private var leftStick = StickSnapshot()
     private var rightStick = StickSnapshot()
+    private var pressedControls = Set<ControllerControlID>()
     private var cursorConfiguration = ControllerProfile.gabesDefaults.cursor
     private var smoothedVelocity = SIMD2<Double>.zero
     private var primaryFlickBoost = 1.0
     private var primaryFlickTracker = FlickBoostTracker()
+    private var zoomRepeater = StickZoomRepeater()
+    private var zoomStepHandler: CursorEngine.ZoomStepHandler?
     private var crossEdgeSweep: CrossEdgeSweep?
     private var lastKnownCursorPosition: CGPoint?
     private var lastSyntheticCursorUpdateTime = 0.0
@@ -231,6 +238,13 @@ private final class CursorMotionLoop: @unchecked Sendable {
         movementAccumulator.setHandler(interceptor)
     }
 
+    @MainActor
+    func setZoomStepHandler(_ handler: CursorEngine.ZoomStepHandler?) {
+        queue.async { [weak self] in
+            self?.zoomStepHandler = handler
+        }
+    }
+
     func setEnabled(_ enabled: Bool) {
         queue.async { [weak self] in
             guard let self else { return }
@@ -240,6 +254,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
                 self.smoothedVelocity = .zero
                 self.crossEdgeSweep = nil
                 self.resetFlickState()
+                self.zoomRepeater.reset()
                 self.endLeftDragOnQueue()
             }
         }
@@ -254,6 +269,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
                 self.smoothedVelocity = .zero
                 self.crossEdgeSweep = nil
                 self.resetFlickState()
+                self.zoomRepeater.reset()
                 self.endLeftDragOnQueue()
             }
         }
@@ -268,6 +284,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
                 self.smoothedVelocity = .zero
                 self.crossEdgeSweep = nil
                 self.resetFlickState()
+                self.zoomRepeater.reset()
             }
         }
     }
@@ -277,7 +294,14 @@ private final class CursorMotionLoop: @unchecked Sendable {
             guard let self else { return }
             self.leftStick = snapshot.leftStick
             self.rightStick = snapshot.rightStick
-            self.recordPrimaryStickChange(at: ProcessInfo.processInfo.systemUptime)
+            self.pressedControls = snapshot.pressedControls
+            if self.cursorConfiguration.zoomGestureEnabled,
+               snapshot.pressedControls.contains(.buttonSouth),
+               CursorMath.zoomGestureSample(stick: snapshot.leftStick) != nil {
+                self.resetFlickState()
+            } else {
+                self.recordPrimaryStickChange(at: ProcessInfo.processInfo.systemUptime)
+            }
         }
     }
 
@@ -286,6 +310,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
             guard let self else { return }
             self.cursorConfiguration = configuration
             self.resetFlickState()
+            self.zoomRepeater.reset()
             self.recordPrimaryStickChange(at: ProcessInfo.processInfo.systemUptime)
         }
     }
@@ -320,7 +345,9 @@ private final class CursorMotionLoop: @unchecked Sendable {
             crossEdgeSweep = nil
             leftStick = StickSnapshot()
             rightStick = StickSnapshot()
+            pressedControls.removeAll()
             resetFlickState()
+            zoomRepeater.reset()
             recordPrimaryStickChange(at: ProcessInfo.processInfo.systemUptime)
             lastTickTime = ProcessInfo.processInfo.systemUptime
         }
@@ -441,6 +468,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
             crossEdgeSweep = CrossEdgeSweep(direction: direction)
             smoothedVelocity = .zero
             resetFlickState()
+            zoomRepeater.reset()
             lastTickTime = ProcessInfo.processInfo.systemUptime
             publishDiagnostics(
                 state: .moving,
@@ -490,6 +518,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
             smoothedVelocity = .zero
             crossEdgeSweep = nil
             resetFlickState()
+            zoomRepeater.reset()
             if !accessibilityTrusted {
                 endLeftDragOnQueue()
             }
@@ -506,6 +535,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
             smoothedVelocity = .zero
             crossEdgeSweep = nil
             resetFlickState()
+            zoomRepeater.reset()
             publishDiagnostics(
                 state: .idle,
                 velocity: .zero,
@@ -538,19 +568,35 @@ private final class CursorMotionLoop: @unchecked Sendable {
             return
         }
 
+        if let zoomStep = zoomRepeater.update(
+            stick: leftStick,
+            modifierPressed: pressedControls.contains(.buttonSouth),
+            enabled: cursorConfiguration.zoomGestureEnabled,
+            at: now
+        ) {
+            deliverZoomStep(zoomStep)
+        }
+        let suppressLeftStick = zoomRepeater.isActive
+
         primaryFlickBoost = CursorMath.decayedFlickBoost(
             primaryFlickBoost,
             elapsedTime: deltaTime
         )
-        let primaryVelocity = velocity(
-            for: cursorConfiguration.primaryStick,
-            speed: cursorConfiguration.primarySpeed,
-            speedMultiplier: primaryFlickBoost
-        )
-        let precisionVelocity = velocity(
-            for: cursorConfiguration.precisionStick,
-            speed: cursorConfiguration.precisionSpeed
-        )
+        let primaryVelocity = suppressLeftStick
+            && cursorConfiguration.primaryStick.stickSide == .left
+            ? .zero
+            : velocity(
+                for: cursorConfiguration.primaryStick,
+                speed: cursorConfiguration.primarySpeed,
+                speedMultiplier: primaryFlickBoost
+            )
+        let precisionVelocity = suppressLeftStick
+            && cursorConfiguration.precisionStick.stickSide == .left
+            ? .zero
+            : velocity(
+                for: cursorConfiguration.precisionStick,
+                speed: cursorConfiguration.precisionSpeed
+            )
 
         var combinedVelocity = primaryVelocity + precisionVelocity
         let activeMaxSpeed = max(
@@ -562,12 +608,14 @@ private final class CursorMotionLoop: @unchecked Sendable {
         if activeMaxSpeed > 0 {
             combinedVelocity = CursorMath.clampMagnitude(combinedVelocity, maxLength: activeMaxSpeed)
         }
-        smoothedVelocity = CursorMath.blend(
-            current: smoothedVelocity,
-            target: combinedVelocity,
-            smoothing: cursorConfiguration.smoothing,
-            elapsedTime: deltaTime
-        )
+        smoothedVelocity = suppressLeftStick
+            ? combinedVelocity
+            : CursorMath.blend(
+                current: smoothedVelocity,
+                target: combinedVelocity,
+                smoothing: cursorConfiguration.smoothing,
+                elapsedTime: deltaTime
+            )
 
         guard simd_length(smoothedVelocity) >= 0.01 else {
             smoothedVelocity = .zero
@@ -575,13 +623,24 @@ private final class CursorMotionLoop: @unchecked Sendable {
                 state: .idle,
                 velocity: smoothedVelocity,
                 location: nil,
-                message: "Stick input is below the active threshold."
+                message: suppressLeftStick
+                    ? "A + left stick zoom is active."
+                    : "Stick input is below the active threshold."
             )
             return
         }
 
         let frameDelta = smoothedVelocity * deltaTime
         moveCursor(by: frameDelta, allowInterception: true)
+    }
+
+    private func deliverZoomStep(_ direction: StickZoomDirection) {
+        guard let zoomStepHandler else { return }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                zoomStepHandler(direction)
+            }
+        }
     }
 
     private func velocity(

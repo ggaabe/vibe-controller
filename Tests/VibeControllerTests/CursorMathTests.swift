@@ -122,6 +122,95 @@ final class CursorMathTests: XCTestCase {
         XCTAssertEqual(CursorMath.decayedFlickBoost(2, elapsedTime: 2), 1, accuracy: 0.000_001)
     }
 
+    func testZoomGestureMapsVerticalStickDirectionsAndAcceptsDiagonals() {
+        XCTAssertEqual(
+            CursorMath.zoomGestureSample(stick: StickSnapshot(x: 0, y: 0.8))?.direction,
+            .zoomIn
+        )
+        XCTAssertEqual(
+            CursorMath.zoomGestureSample(stick: StickSnapshot(x: -0.7, y: -0.7))?.direction,
+            .zoomOut
+        )
+    }
+
+    func testZoomGestureRejectsSmallAndMostlyHorizontalMovement() {
+        XCTAssertNil(CursorMath.zoomGestureSample(stick: StickSnapshot(x: 0, y: 0.4)))
+        XCTAssertNil(CursorMath.zoomGestureSample(stick: StickSnapshot(x: 1, y: 0.6)))
+    }
+
+    func testZoomRepeaterFiresImmediatelyThenUsesStickMagnitudeForCadence() {
+        var slowRepeater = StickZoomRepeater()
+        XCTAssertEqual(
+            slowRepeater.update(
+                stick: StickSnapshot(x: 0, y: 0.56),
+                modifierPressed: true,
+                enabled: true,
+                at: 0
+            ),
+            .zoomIn
+        )
+        XCTAssertNil(
+            slowRepeater.update(
+                stick: StickSnapshot(x: 0, y: 0.56),
+                modifierPressed: true,
+                enabled: true,
+                at: 0.1
+            )
+        )
+
+        var fastRepeater = StickZoomRepeater()
+        XCTAssertEqual(
+            fastRepeater.update(
+                stick: StickSnapshot(x: 0, y: 1),
+                modifierPressed: true,
+                enabled: true,
+                at: 0
+            ),
+            .zoomIn
+        )
+        XCTAssertEqual(
+            fastRepeater.update(
+                stick: StickSnapshot(x: 0, y: 1),
+                modifierPressed: true,
+                enabled: true,
+                at: 0.08
+            ),
+            .zoomIn
+        )
+    }
+
+    func testZoomRepeaterUsesHysteresisAndResetsWhenAIsReleased() {
+        var repeater = StickZoomRepeater()
+        XCTAssertEqual(
+            repeater.update(
+                stick: StickSnapshot(x: 0, y: 0.8),
+                modifierPressed: true,
+                enabled: true,
+                at: 0
+            ),
+            .zoomIn
+        )
+        XCTAssertNil(
+            repeater.update(
+                stick: StickSnapshot(x: 0, y: 0.48),
+                modifierPressed: true,
+                enabled: true,
+                at: 0.05
+            )
+        )
+        XCTAssertTrue(repeater.isActive)
+
+        XCTAssertNil(
+            repeater.update(
+                stick: StickSnapshot(x: 0, y: 0.8),
+                modifierPressed: false,
+                enabled: true,
+                at: 0.1
+            )
+        )
+        XCTAssertFalse(repeater.isActive)
+    }
+
     func testCrossEdgeSweepsMirrorEachOtherWithoutVerticalMovement() {
         var leftSweep = CrossEdgeSweep(direction: .left)
         var rightSweep = CrossEdgeSweep(direction: .right)

@@ -1,6 +1,25 @@
 import Foundation
 import simd
 
+enum StickZoomDirection: Equatable, Sendable {
+    case zoomIn
+    case zoomOut
+
+    var displayName: String {
+        switch self {
+        case .zoomIn:
+            return "Zoom In"
+        case .zoomOut:
+            return "Zoom Out"
+        }
+    }
+}
+
+struct StickZoomSample: Equatable, Sendable {
+    var direction: StickZoomDirection
+    var magnitude: Double
+}
+
 enum CursorMath {
     static let referenceFrameDuration = 1.0 / 120.0
     static let maximumCatchUpDuration = 0.1
@@ -10,6 +29,8 @@ enum CursorMath {
     static let flickFullThrowMagnitude = 0.92
     static let flickActivationDuration = 0.065
     static let flickFullBoostDuration = 0.04
+    static let zoomGestureActivationThreshold = 0.55
+    static let zoomGestureReleaseThreshold = 0.42
 
     static func adjustedVector(
         x: Double,
@@ -94,6 +115,75 @@ enum CursorMath {
         let frameCount = max(0, elapsedTime / referenceFrameDuration)
         let alpha = 1.0 - pow(1.0 - baseAlpha, frameCount)
         return current + ((target - current) * alpha)
+    }
+
+    static func zoomGestureSample(
+        stick: StickSnapshot,
+        threshold: Double = zoomGestureActivationThreshold
+    ) -> StickZoomSample? {
+        let verticalMagnitude = abs(stick.y)
+        let horizontalMagnitude = abs(stick.x)
+        guard verticalMagnitude >= threshold,
+              verticalMagnitude >= horizontalMagnitude * 0.85 else {
+            return nil
+        }
+
+        return StickZoomSample(
+            direction: stick.y > 0 ? .zoomIn : .zoomOut,
+            magnitude: min(max(verticalMagnitude, 0), 1)
+        )
+    }
+
+    static func zoomRepeatInterval(for magnitude: Double) -> Double {
+        let normalized = min(max(
+            (magnitude - zoomGestureActivationThreshold)
+                / (1 - zoomGestureActivationThreshold),
+            0
+        ), 1)
+        return 0.28 - (normalized * 0.205)
+    }
+}
+
+struct StickZoomRepeater: Sendable {
+    private(set) var activeDirection: StickZoomDirection?
+    private var nextStepTime = 0.0
+
+    var isActive: Bool { activeDirection != nil }
+
+    mutating func reset() {
+        activeDirection = nil
+        nextStepTime = 0
+    }
+
+    mutating func update(
+        stick: StickSnapshot,
+        modifierPressed: Bool,
+        enabled: Bool,
+        at currentTime: Double
+    ) -> StickZoomDirection? {
+        guard enabled, modifierPressed else {
+            reset()
+            return nil
+        }
+
+        let threshold = activeDirection == nil
+            ? CursorMath.zoomGestureActivationThreshold
+            : CursorMath.zoomGestureReleaseThreshold
+        guard let sample = CursorMath.zoomGestureSample(stick: stick, threshold: threshold) else {
+            reset()
+            return nil
+        }
+
+        let interval = CursorMath.zoomRepeatInterval(for: sample.magnitude)
+        if activeDirection != sample.direction {
+            activeDirection = sample.direction
+            nextStepTime = currentTime + interval
+            return sample.direction
+        }
+
+        guard currentTime >= nextStepTime else { return nil }
+        nextStepTime = currentTime + interval
+        return sample.direction
     }
 }
 

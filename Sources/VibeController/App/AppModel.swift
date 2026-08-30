@@ -181,6 +181,9 @@ final class AppModel: ObservableObject {
         cursorEngine.onDiagnostics = { [weak self] diagnostics in
             self?.cursorDiagnostics = diagnostics
         }
+        cursorEngine.onZoomStep = { [weak self] direction in
+            self?.actionEngine.performZoomStep(direction)
+        }
         cursorEngine.universalControlInputBridge.onStatusChange = { [weak self] in
             self?.objectWillChange.send()
             self?.advanceAutomaticSetup()

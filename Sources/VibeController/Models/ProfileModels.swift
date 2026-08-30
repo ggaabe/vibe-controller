@@ -256,6 +256,7 @@ struct CursorConfiguration: Hashable, Sendable {
     var horizontalSpeedMultiplier: Double
     var verticalSpeedMultiplier: Double
     var flickBoostEnabled: Bool
+    var zoomGestureEnabled: Bool
 
     init(
         primaryStick: StickAssignment,
@@ -272,7 +273,8 @@ struct CursorConfiguration: Hashable, Sendable {
         invertPrecisionY: Bool,
         horizontalSpeedMultiplier: Double,
         verticalSpeedMultiplier: Double,
-        flickBoostEnabled: Bool = true
+        flickBoostEnabled: Bool = true,
+        zoomGestureEnabled: Bool = true
     ) {
         self.primaryStick = primaryStick
         self.precisionStick = precisionStick
@@ -289,6 +291,7 @@ struct CursorConfiguration: Hashable, Sendable {
         self.horizontalSpeedMultiplier = horizontalSpeedMultiplier
         self.verticalSpeedMultiplier = verticalSpeedMultiplier
         self.flickBoostEnabled = flickBoostEnabled
+        self.zoomGestureEnabled = zoomGestureEnabled
     }
 }
 
@@ -309,6 +312,7 @@ extension CursorConfiguration: Codable {
         case horizontalSpeedMultiplier
         case verticalSpeedMultiplier
         case flickBoostEnabled
+        case zoomGestureEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -328,6 +332,7 @@ extension CursorConfiguration: Codable {
         horizontalSpeedMultiplier = try container.decode(Double.self, forKey: .horizontalSpeedMultiplier)
         verticalSpeedMultiplier = try container.decode(Double.self, forKey: .verticalSpeedMultiplier)
         flickBoostEnabled = try container.decodeIfPresent(Bool.self, forKey: .flickBoostEnabled) ?? true
+        zoomGestureEnabled = try container.decodeIfPresent(Bool.self, forKey: .zoomGestureEnabled) ?? true
     }
 
     func encode(to encoder: Encoder) throws {
@@ -347,6 +352,7 @@ extension CursorConfiguration: Codable {
         try container.encode(horizontalSpeedMultiplier, forKey: .horizontalSpeedMultiplier)
         try container.encode(verticalSpeedMultiplier, forKey: .verticalSpeedMultiplier)
         try container.encode(flickBoostEnabled, forKey: .flickBoostEnabled)
+        try container.encode(zoomGestureEnabled, forKey: .zoomGestureEnabled)
     }
 }
 
@@ -449,7 +455,8 @@ extension ControllerProfile {
             invertPrecisionY: false,
             horizontalSpeedMultiplier: 1.0,
             verticalSpeedMultiplier: 1.0,
-            flickBoostEnabled: false
+            flickBoostEnabled: false,
+            zoomGestureEnabled: true
         ),
         mappings: [
             .leftTrigger: ControllerActionMapping(actionType: .leftMouseHold, triggerMode: .holdWhilePressed),

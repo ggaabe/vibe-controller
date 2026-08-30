@@ -72,4 +72,33 @@ final class XboxUSBReportParserTests: XCTestCase {
         )
         XCTAssertFalse(released.pressedControls.contains(.home))
     }
+
+    func testStandardReportsPreserveHomeUntilGuideReleaseOrFailsafe() throws {
+        var previous = XboxUSBInputState()
+        previous.pressedControls.insert(.home)
+        previous.analogValues[.home] = 1
+
+        let standardReport: [UInt8] = [
+            0x20, 0x00, 0x01, 0x00,
+            0x00, 0x00,
+            0x00, 0x00,
+            0x00, 0x00,
+            0x00, 0x00,
+            0x00, 0x00,
+            0x00, 0x00,
+            0x00, 0x00,
+            0x00,
+        ]
+
+        let state = try XCTUnwrap(
+            XboxUSBReportParser.parse(
+                reportID: 0x20,
+                bytes: standardReport,
+                previous: previous
+            )
+        )
+
+        XCTAssertTrue(state.pressedControls.contains(.home))
+        XCTAssertEqual(state.analogValues[.home], 1)
+    }
 }

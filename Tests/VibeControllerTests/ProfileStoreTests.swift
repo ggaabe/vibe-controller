@@ -137,6 +137,30 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertFalse(decoded.flickBoostEnabled)
     }
 
+    func testLegacyCursorConfigurationEnablesZoomGesture() throws {
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(ControllerProfile.gabesDefaults.cursor)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        object.removeValue(forKey: "zoomGestureEnabled")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(CursorConfiguration.self, from: legacyData)
+
+        XCTAssertTrue(decoded.zoomGestureEnabled)
+    }
+
+    func testCursorConfigurationPersistsDisabledZoomGesture() throws {
+        var configuration = ControllerProfile.gabesDefaults.cursor
+        configuration.zoomGestureEnabled = false
+
+        let data = try JSONEncoder().encode(configuration)
+        let decoded = try JSONDecoder().decode(CursorConfiguration.self, from: data)
+
+        XCTAssertFalse(decoded.zoomGestureEnabled)
+    }
+
     func testLegacyProfileDefaultsToNoModifierLayers() throws {
         let encoder = JSONEncoder()
         let data = try encoder.encode(ControllerProfile.gabesDefaults)

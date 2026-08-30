@@ -65,6 +65,27 @@ final class ControllerInputRelayTests: XCTestCase {
     }
 
     @MainActor
+    func testZoomThresholdTransitionsReachActionStreamWithoutFloodingIt() async {
+        let inputQueue = DispatchQueue(label: "test.controller-zoom-actions", qos: .userInteractive)
+        let relay = ControllerInputRelay(inputQueue: inputQueue)
+        let recorder = RelayRecorder()
+        let actionExpectation = expectation(description: "zoom action transitions")
+        actionExpectation.expectedFulfillmentCount = 2
+
+        relay.setActionHandler { snapshot in
+            recorder.recordAction(snapshot)
+            actionExpectation.fulfill()
+        }
+
+        relay.receiveGameController(makeSnapshot(x: 0, y: 0, pressed: [.buttonSouth]))
+        relay.receiveGameController(makeSnapshot(x: 0, y: 0.8, pressed: [.buttonSouth]))
+        relay.receiveGameController(makeSnapshot(x: 0, y: 0.9, pressed: [.buttonSouth]))
+
+        await fulfillment(of: [actionExpectation], timeout: 2)
+        XCTAssertEqual(recorder.snapshot().actionCount, 2)
+    }
+
+    @MainActor
     func testMainThreadStallCoalescesTelemetryWithoutDelayingRealtimeInput() {
         let inputQueue = DispatchQueue(label: "test.controller-main-stall", qos: .userInteractive)
         let relay = ControllerInputRelay(inputQueue: inputQueue)
@@ -100,6 +121,8 @@ final class ControllerInputRelayTests: XCTestCase {
 
     private func makeSnapshot(
         x: Double,
+        y: Double = 0,
+        pressed: Set<ControllerControlID> = [],
         timestamp: Date = Date()
     ) -> ControllerSnapshot {
         ControllerSnapshot(
@@ -108,9 +131,9 @@ final class ControllerInputRelayTests: XCTestCase {
             connectionSummary: "USB",
             batteryLevel: nil,
             batteryStateDescription: nil,
-            pressedControls: [],
+            pressedControls: pressed,
             analogValues: [.leftThumbstick: abs(x)],
-            leftStick: StickSnapshot(x: x, y: 0),
+            leftStick: StickSnapshot(x: x, y: y),
             rightStick: StickSnapshot(),
             lastUpdated: timestamp
         )
@@ -124,6 +147,7 @@ private final class RelayRecorder: @unchecked Sendable {
         var telemetryCount: Int
         var latestTelemetryX: Double
         var actionConnections: [Bool]
+        var actionCount: Int
     }
 
     private let lock = NSLock()
@@ -132,6 +156,7 @@ private final class RelayRecorder: @unchecked Sendable {
     private var telemetryCount = 0
     private var latestTelemetryX = 0.0
     private var actionConnections: [Bool] = []
+    private var actionCount = 0
 
     func recordRealtime(_ snapshot: ControllerSnapshot, wasMainThread: Bool) {
         lock.lock()
@@ -150,6 +175,7 @@ private final class RelayRecorder: @unchecked Sendable {
     func recordAction(_ snapshot: ControllerSnapshot) {
         lock.lock()
         actionConnections.append(snapshot.isConnected)
+        actionCount += 1
         lock.unlock()
     }
 
@@ -161,7 +187,8 @@ private final class RelayRecorder: @unchecked Sendable {
             realtimeUsedMainThread: realtimeUsedMainThread,
             telemetryCount: telemetryCount,
             latestTelemetryX: latestTelemetryX,
-            actionConnections: actionConnections
+            actionConnections: actionConnections,
+            actionCount: actionCount
         )
     }
 }

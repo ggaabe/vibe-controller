@@ -187,6 +187,44 @@ final class ActionEngineTests: XCTestCase {
         XCTAssertTrue(recorder.events.isEmpty)
     }
 
+    func testZoomEnabledDefersATapUntilReleaseAndStillClicks() {
+        let recorder = ActionEventRecorder()
+        let actionEngine = makeActionEngine(recorder: recorder)
+        var profile = ControllerProfile.gabesDefaults
+        profile.cursor.zoomGestureEnabled = true
+
+        actionEngine.process(snapshot: snapshot(pressed: [.buttonSouth]), profile: profile)
+        XCTAssertTrue(recorder.events.isEmpty)
+
+        actionEngine.process(snapshot: snapshot(pressed: []), profile: profile)
+
+        XCTAssertEqual(recorder.events.count, 1)
+        guard case .mouse(.left, .click) = recorder.events[0].payload else {
+            return XCTFail("Expected A tap to retain its left-click action")
+        }
+    }
+
+    func testZoomGestureConsumesATapAndEmitsStandardZoomShortcut() {
+        let recorder = ActionEventRecorder()
+        let actionEngine = makeActionEngine(recorder: recorder)
+        var profile = ControllerProfile.gabesDefaults
+        profile.cursor.zoomGestureEnabled = true
+
+        actionEngine.process(snapshot: snapshot(pressed: [.buttonSouth]), profile: profile)
+        var zoomingSnapshot = snapshot(pressed: [.buttonSouth])
+        zoomingSnapshot.leftStick = StickSnapshot(x: 0, y: 0.9)
+        actionEngine.process(snapshot: zoomingSnapshot, profile: profile)
+        actionEngine.performZoomStep(.zoomIn)
+        actionEngine.process(snapshot: snapshot(pressed: []), profile: profile)
+
+        XCTAssertEqual(recorder.events.count, 1)
+        assertShortcut(
+            recorder.events[0],
+            equals: ShortcutDescriptor(keyCode: 24, modifiers: [.shift, .command]),
+            phase: .tap
+        )
+    }
+
     func testRepeatScrollUpFiresImmediatelyInTheExpectedDirection() {
         assertImmediateScroll(
             control: .dpadUp,
