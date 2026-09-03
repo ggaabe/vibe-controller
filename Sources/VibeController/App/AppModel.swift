@@ -24,6 +24,19 @@ enum ControllerMappingLayer: Hashable, Identifiable {
             return "\(control.displayName) held"
         }
     }
+
+    static func visibleLayer(
+        selectedLayer: ControllerMappingLayer,
+        profile: ControllerProfile,
+        pressedControls: Set<ControllerControlID>
+    ) -> ControllerMappingLayer {
+        guard let modifierControl = profile.modifierLayers
+            .first(where: { pressedControls.contains($0.modifierControl) })?
+            .modifierControl else {
+            return selectedLayer
+        }
+        return .modifier(modifierControl)
+    }
 }
 
 enum ControllerSheetSelection: Identifiable {
@@ -603,11 +616,11 @@ final class AppModel: ObservableObject {
 
     func presentMapping(for control: ControllerControlID) {
         let editingLayer: ControllerMappingLayer
-        if case .modifier(let modifierControl) = selectedMappingLayer,
+        if case .modifier(let modifierControl) = visibleMappingLayer,
            modifierControl == control {
             editingLayer = .base
         } else {
-            editingLayer = selectedMappingLayer
+            editingLayer = visibleMappingLayer
         }
         presentedSheet = .mapping(control, editingLayer)
     }
@@ -646,13 +659,40 @@ final class AppModel: ObservableObject {
         return control
     }
 
+    var liveModifierPreviewControl: ControllerControlID? {
+        guard case .modifier(let control) = visibleMappingLayer,
+              controllerSnapshot.pressedControls.contains(control) else {
+            return nil
+        }
+        return control
+    }
+
+    var visibleMappingLayer: ControllerMappingLayer {
+        ControllerMappingLayer.visibleLayer(
+            selectedLayer: selectedMappingLayer,
+            profile: activeProfile,
+            pressedControls: controllerSnapshot.pressedControls
+        )
+    }
+
     var mappingLayerDetail: String {
-        switch selectedMappingLayer {
+        switch visibleMappingLayer {
         case .base:
             return "Normal controller actions"
         case .modifier(let control):
             return "Overrides used while \(controlDisplayName(control)) is held"
         }
+    }
+
+    var mappingLayerContextHint: String? {
+        if let previewControl = liveModifierPreviewControl {
+            if visibleMappingLayer == selectedMappingLayer {
+                return "Live input is previewing the selected layer."
+            }
+            return "Release \(controlDisplayName(previewControl)) to return to \(mappingLayerDisplayName(selectedMappingLayer))."
+        }
+        guard let modifierControl = selectedModifierControl else { return nil }
+        return "Tap \(controlDisplayName(modifierControl)) alone to run its Default action."
     }
 
     func selectMappingLayer(_ layer: ControllerMappingLayer) {
@@ -708,7 +748,7 @@ final class AppModel: ObservableObject {
     }
 
     func mapping(for control: ControllerControlID) -> ControllerActionMapping {
-        mapping(for: control, in: selectedMappingLayer)
+        mapping(for: control, in: visibleMappingLayer)
     }
 
     func mappingSummary(for control: ControllerControlID) -> String {
@@ -723,15 +763,15 @@ final class AppModel: ObservableObject {
                 return "Off"
             }
         }
-        switch selectedMappingLayer {
+        switch visibleMappingLayer {
         case .base:
             return mapping(for: control, in: .base).summary
         case .modifier(let modifierControl):
             if control == modifierControl {
                 return "Layer Modifier"
             }
-            let summary = mapping(for: control, in: selectedMappingLayer).summary
-            return hasMappingOverride(for: control, in: selectedMappingLayer)
+            let summary = mapping(for: control, in: visibleMappingLayer).summary
+            return hasMappingOverride(for: control, in: visibleMappingLayer)
                 ? summary
                 : "Default · \(summary)"
         }

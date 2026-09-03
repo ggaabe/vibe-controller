@@ -33,7 +33,7 @@ struct ControllerDiagramView: View {
                 Picker(
                     "Mapping layer",
                     selection: Binding(
-                        get: { appModel.selectedMappingLayer },
+                        get: { appModel.visibleMappingLayer },
                         set: { appModel.selectMappingLayer($0) }
                     )
                 ) {
@@ -44,6 +44,20 @@ struct ControllerDiagramView: View {
                 .labelsHidden()
                 .frame(width: 170)
                 .frame(minHeight: 40)
+                .disabled(appModel.liveModifierPreviewControl != nil)
+
+                if let previewControl = appModel.liveModifierPreviewControl {
+                    Label(
+                        "Live · \(appModel.controlDisplayName(previewControl)) held",
+                        systemImage: "eye.fill"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                }
 
                 Menu {
                     ForEach(appModel.availableModifierControls) { control in
@@ -55,9 +69,13 @@ struct ControllerDiagramView: View {
                     Label("Add Modifier", systemImage: "plus")
                 }
                 .frame(minHeight: 40)
-                .disabled(appModel.availableModifierControls.isEmpty)
+                .disabled(
+                    appModel.availableModifierControls.isEmpty ||
+                        appModel.liveModifierPreviewControl != nil
+                )
 
-                if let modifierControl = appModel.selectedModifierControl {
+                if appModel.liveModifierPreviewControl == nil,
+                   let modifierControl = appModel.selectedModifierControl {
                     Button(role: .destructive) {
                         isConfirmingLayerRemoval = true
                     } label: {
@@ -73,8 +91,8 @@ struct ControllerDiagramView: View {
                     Text(appModel.mappingLayerDetail)
                         .font(.footnote.weight(.medium))
                         .foregroundStyle(.secondary)
-                    if let modifierControl = appModel.selectedModifierControl {
-                        Text("Tap \(appModel.controlDisplayName(modifierControl)) alone to run its Default action.")
+                    if let contextHint = appModel.mappingLayerContextHint {
+                        Text(contextHint)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -83,6 +101,10 @@ struct ControllerDiagramView: View {
             }
             .controlSize(.regular)
             .frame(minHeight: 40)
+            .animation(
+                .easeOut(duration: 0.16),
+                value: appModel.liveModifierPreviewControl
+            )
 
             ControllerCanvas(canvasColors: canvasColors, borderColor: borderColor)
                 .frame(minHeight: 450, idealHeight: 530, maxHeight: 590)

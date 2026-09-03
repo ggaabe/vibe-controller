@@ -149,6 +149,7 @@ Stick roles are configured separately by clicking either stick. Shortcut assignm
 
 Modifier layers let one controller button expose a second set of actions without replacing its normal tap action. In **Controller Map**, choose **Add Modifier**, select a control such as LB, and then switch the Layer picker to **LB held**. Click any other control to save an override for that combination.
 
+- Hold any configured modifier on the controller to preview that layer live on the map. Release it to return to the layer you were editing.
 - Tap the modifier by itself to run its normal Default action.
 - Hold the modifier and press a control with an override to run the alternate action.
 - Controls without an override continue using their Default action.
