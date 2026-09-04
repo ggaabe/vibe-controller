@@ -53,6 +53,22 @@ final class VirtualHardwareSetupTests: XCTestCase {
         XCTAssertEqual(snapshot.phase, .driverVersionMismatch)
     }
 
+    func testKnownSupportMismatchDoesNotRemainStuckChecking() {
+        let snapshot = makeSnapshot(
+            helperInstalledSecurely: true,
+            driverManagerInstalled: true,
+            driverStatusKnown: false,
+            driverVersionMismatched: true
+        )
+
+        XCTAssertEqual(snapshot.phase, .driverVersionMismatch)
+        XCTAssertTrue(
+            PrivilegedVirtualHIDBridge.requiresSupportUpdate(
+                forOutputLine: "ERROR unauthorized parent process"
+            )
+        )
+    }
+
     func testActivatedDriverWaitsForVirtualDevices() {
         let snapshot = makeSnapshot(
             helperInstalledSecurely: true,

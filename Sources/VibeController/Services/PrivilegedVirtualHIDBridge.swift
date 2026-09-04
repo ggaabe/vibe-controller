@@ -295,16 +295,23 @@ final class PrivilegedVirtualHIDBridge {
                 message: message
             )
         } else if line.hasPrefix("ERROR ") {
-            hasReceivedDriverStatus = false
+            let requiresSupportUpdate = Self.requiresSupportUpdate(forOutputLine: line)
+            hasReceivedDriverStatus = requiresSupportUpdate
             updateStatus(
                 driverActivated: false,
                 driverConnected: false,
-                driverVersionMismatched: false,
+                driverVersionMismatched: requiresSupportUpdate,
                 keyboardReady: false,
                 pointingReady: false,
-                message: String(line.dropFirst("ERROR ".count))
+                message: requiresSupportUpdate
+                    ? "The installed Virtual Hardware Support does not recognize this app build. Run the bundled installer again."
+                    : String(line.dropFirst("ERROR ".count))
             )
         }
+    }
+
+    nonisolated static func requiresSupportUpdate(forOutputLine line: String) -> Bool {
+        line == "ERROR unauthorized parent process"
     }
 
     private func handleTermination() {

@@ -226,11 +226,11 @@ struct VirtualHardwareSetupSnapshot: Equatable, Sendable {
         if !helperInstalledSecurely || !driverManagerInstalled {
             return bundledInstallerAvailable ? .needsSupportInstall : .missingBundledInstaller
         }
-        if !driverStatusKnown {
-            return .checking
-        }
         if driverVersionMismatched {
             return .driverVersionMismatch
+        }
+        if !driverStatusKnown {
+            return .checking
         }
         if !driverActivated {
             return .needsDriverApproval
