@@ -24,7 +24,7 @@ final class ProfileStoreTests: XCTestCase {
 
         let document = try store.loadOrCreate()
 
-        XCTAssertEqual(document.version, 2)
+        XCTAssertEqual(document.version, 5)
         XCTAssertEqual(document.profiles.first?.name, "Gabe's Defaults")
         XCTAssertEqual(document.activeProfileId, "gabes-defaults")
         XCTAssertEqual(document.profiles.first?.mappings[.buttonWest]?.shortcut?.displayString, "⇧⌘2")
@@ -77,6 +77,34 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(
             document.profiles.first?.modifierLayer(for: .rightShoulder)?.mappings[.dpadDown]?.actionType,
             .crossEdgeDown
+        )
+        let codexMappings = document.profiles.first?.applicationMapping(
+            for: ApplicationMappingOverrides.codexBundleIdentifier
+        )
+        XCTAssertEqual(codexMappings?.displayName, "Codex / ChatGPT")
+        XCTAssertEqual(codexMappings?.mappings.count, 1)
+        XCTAssertEqual(codexMappings?.mappings[.menu]?.shortcut?.displayString, "⌘N")
+        XCTAssertNil(codexMappings?.mappings[.buttonNorth])
+        XCTAssertNil(codexMappings?.mappings[.rightTrigger])
+        XCTAssertEqual(
+            codexMappings?.modifierLayer(for: .leftShoulder)?
+                .mappings[.menu]?.shortcut?.displayString,
+            "⌥⌘A"
+        )
+        XCTAssertEqual(
+            codexMappings?.modifierLayer(for: .rightShoulder)?
+                .mappings[.menu]?.shortcut?.displayString,
+            "⌥⌘A"
+        )
+        XCTAssertEqual(
+            codexMappings?.modifierLayer(for: .leftShoulder)?
+                .mappings[.options]?.shortcut?.displayString,
+            "⌥⇧⌘F"
+        )
+        XCTAssertEqual(
+            codexMappings?.modifierLayer(for: .rightShoulder)?
+                .mappings[.options]?.shortcut?.displayString,
+            "⌥⇧⌘F"
         )
         XCTAssertEqual(document.profiles.first, ControllerProfile.gabesDefaults)
     }
@@ -176,6 +204,326 @@ final class ProfileStoreTests: XCTestCase {
         )
 
         XCTAssertTrue(decoded.modifierLayers.isEmpty)
+    }
+
+    func testLegacyProfileDefaultsToNoApplicationMappings() throws {
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(ControllerProfile.gabesDefaults)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        object.removeValue(forKey: "applicationMappings")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(
+            ControllerProfile.self,
+            from: legacyData
+        )
+
+        XCTAssertTrue(decoded.applicationMappings.isEmpty)
+    }
+
+    func testVersionTwoGabesDefaultsGainsCodexStarterOnce() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        let store = ProfileStore(baseDirectoryURL: directory)
+        var legacyProfile = ControllerProfile.gabesDefaults
+        legacyProfile.applicationMappings = []
+        let legacyDocument = ProfileDocument(
+            version: 2,
+            profiles: [legacyProfile],
+            activeProfileId: legacyProfile.id
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONEncoder().encode(legacyDocument).write(to: store.profilesURL)
+
+        let migrated = try store.loadOrCreate()
+        try store.save(migrated)
+        let reloaded = try store.loadOrCreate()
+
+        XCTAssertEqual(migrated.version, 5)
+        XCTAssertEqual(
+            reloaded.profiles[0].applicationMappings.filter {
+                $0.bundleIdentifier == ApplicationMappingOverrides.codexBundleIdentifier
+            }.count,
+            1
+        )
+        XCTAssertEqual(
+            reloaded.profiles[0].applicationMapping(
+                for: ApplicationMappingOverrides.codexBundleIdentifier
+            ),
+            ControllerProfile.codexStarterApplicationMappings
+        )
+    }
+
+    func testApplicationMappingsRoundTripWithExplicitNoneOverrides() throws {
+        var profile = ControllerProfile.gabesDefaults
+        profile.applicationMappings = [
+            ApplicationMappingOverrides(
+                bundleIdentifier: "com.example.editor",
+                displayName: "Example Editor",
+                mappings: [
+                    .buttonEast: ControllerActionMapping(actionType: .none),
+                ],
+                modifierLayers: [
+                    ControllerModifierLayer(
+                        modifierControl: .leftShoulder,
+                        mappings: [
+                            .buttonWest: ControllerActionMapping(
+                                actionType: .keyboardShortcut,
+                                shortcut: ShortcutDescriptor(keyCode: 0, modifiers: [.command])
+                            ),
+                        ]
+                    ),
+                ]
+            ),
+        ]
+
+        let data = try JSONEncoder().encode(profile)
+        let decoded = try JSONDecoder().decode(ControllerProfile.self, from: data)
+
+        XCTAssertEqual(decoded.applicationMappings, profile.applicationMappings)
+        XCTAssertEqual(
+            decoded.applicationMapping(for: "com.example.editor")?.mappings[.buttonEast]?.actionType,
+            ActionType.none
+        )
+    }
+
+    func testApplicationModifierOverridesFallBackCellByCellToAllApps() {
+        var profile = ControllerProfile.gabesDefaults
+        let appShortcut = ControllerActionMapping(
+            actionType: .keyboardShortcut,
+            shortcut: ShortcutDescriptor(keyCode: 0, modifiers: [.command])
+        )
+        profile.applicationMappings = [
+            ApplicationMappingOverrides(
+                bundleIdentifier: "com.example.editor",
+                displayName: "Example Editor",
+                modifierLayers: [
+                    ControllerModifierLayer(
+                        modifierControl: .leftShoulder,
+                        mappings: [.dpadRight: appShortcut]
+                    ),
+                ]
+            ),
+        ]
+
+        XCTAssertEqual(
+            profile.effectiveMapping(
+                for: .dpadRight,
+                modifierControl: .leftShoulder,
+                applicationBundleIdentifier: "com.example.editor"
+            ),
+            appShortcut
+        )
+        XCTAssertEqual(
+            profile.effectiveMapping(
+                for: .dpadLeft,
+                modifierControl: .leftShoulder,
+                applicationBundleIdentifier: "com.example.editor"
+            ).actionType,
+            .crossEdgeLeft
+        )
+        XCTAssertEqual(
+            profile.effectiveMapping(
+                for: .rightThumbstickButton,
+                modifierControl: .leftShoulder,
+                applicationBundleIdentifier: "com.example.editor"
+            ).shortcut?.displayString,
+            "⌫"
+        )
+    }
+
+    func testVersionThreeProfileDoesNotRecreateRemovedCodexMappings() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        let store = ProfileStore(baseDirectoryURL: directory)
+        var profile = ControllerProfile.gabesDefaults
+        profile.applicationMappings = []
+        let document = ProfileDocument(
+            version: 3,
+            profiles: [profile],
+            activeProfileId: profile.id
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        try JSONEncoder().encode(document).write(to: store.profilesURL)
+
+        let reloaded = try store.loadOrCreate()
+
+        XCTAssertTrue(reloaded.profiles[0].applicationMappings.isEmpty)
+    }
+
+    func testVersionThreeCodexStarterDropsLegacyRightTriggerOverride() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        let store = ProfileStore(baseDirectoryURL: directory)
+        var profile = ControllerProfile.gabesDefaults
+        var codexMappings = ControllerProfile.codexStarterApplicationMappings
+        codexMappings.mappings[.rightTrigger] = ControllerActionMapping(
+            actionType: .keyboardShortcut,
+            shortcut: ShortcutDescriptor(keyCode: 61, modifiers: []),
+            triggerMode: .holdWhilePressed
+        )
+        profile.applicationMappings = [codexMappings]
+        let document = ProfileDocument(
+            version: 3,
+            profiles: [profile],
+            activeProfileId: profile.id
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        try JSONEncoder().encode(document).write(to: store.profilesURL)
+
+        let reloaded = try store.loadOrCreate()
+
+        XCTAssertEqual(reloaded.version, 5)
+        XCTAssertNil(
+            reloaded.profiles[0].applicationMapping(
+                for: ApplicationMappingOverrides.codexBundleIdentifier
+            )?.mappings[.rightTrigger]
+        )
+        XCTAssertEqual(
+            reloaded.profiles[0].effectiveMapping(
+                for: .rightTrigger,
+                modifierControl: nil,
+                applicationBundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier
+            ).shortcut?.displayString,
+            "fn"
+        )
+    }
+
+    func testVersionFiveGabesMigrationReplacesCustomCodexRightTrigger() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        let store = ProfileStore(baseDirectoryURL: directory)
+        var profile = ControllerProfile.gabesDefaults
+        var codexMappings = ControllerProfile.codexStarterApplicationMappings
+        codexMappings.mappings[.rightTrigger] = ControllerActionMapping(
+            actionType: .keyboardShortcut,
+            shortcut: ShortcutDescriptor(keyCode: 0, modifiers: [.command]),
+            triggerMode: .tap
+        )
+        profile.applicationMappings = [codexMappings]
+        let document = ProfileDocument(
+            version: 3,
+            profiles: [profile],
+            activeProfileId: profile.id
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        try JSONEncoder().encode(document).write(to: store.profilesURL)
+
+        let reloaded = try store.loadOrCreate()
+
+        XCTAssertNil(
+            reloaded.profiles[0].applicationMapping(
+                for: ApplicationMappingOverrides.codexBundleIdentifier
+            )?.mappings[.rightTrigger]
+        )
+    }
+
+    func testVersionFourGabesDefaultsAdoptsFocusedCodexStarter() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        let store = ProfileStore(baseDirectoryURL: directory)
+        var profile = ControllerProfile.gabesDefaults
+        profile.applicationMappings = [
+            ApplicationMappingOverrides(
+                bundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier,
+                displayName: "Codex",
+                mappings: [
+                    .menu: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 45, modifiers: [.command])
+                    ),
+                    .buttonEast: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 53, modifiers: [])
+                    ),
+                ]
+            ),
+        ]
+        let document = ProfileDocument(
+            version: 4,
+            profiles: [profile],
+            activeProfileId: profile.id
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        try JSONEncoder().encode(document).write(to: store.profilesURL)
+
+        let reloaded = try store.loadOrCreate()
+
+        XCTAssertEqual(reloaded.version, 5)
+        XCTAssertEqual(
+            reloaded.profiles[0].applicationMapping(
+                for: ApplicationMappingOverrides.codexBundleIdentifier
+            ),
+            ControllerProfile.codexStarterApplicationMappings
+        )
+        XCTAssertEqual(
+            reloaded.profiles[0].effectiveMapping(
+                for: .buttonEast,
+                modifierControl: nil,
+                applicationBundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier
+            ),
+            ControllerProfile.gabesDefaults.mappings[.buttonEast]
+        )
+    }
+
+    func testVersionFourOtherProfilePreservesCustomCodexMappings() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        let store = ProfileStore(baseDirectoryURL: directory)
+        var profile = ControllerProfile.gabesDefaults
+        profile.id = "custom"
+        profile.name = "Custom"
+        let customMapping = ApplicationMappingOverrides(
+            bundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier,
+            displayName: "My Codex",
+            mappings: [.buttonEast: ControllerActionMapping(actionType: .none)]
+        )
+        profile.applicationMappings = [customMapping]
+        let document = ProfileDocument(
+            version: 4,
+            profiles: [profile],
+            activeProfileId: profile.id
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        try JSONEncoder().encode(document).write(to: store.profilesURL)
+
+        let reloaded = try store.loadOrCreate()
+
+        XCTAssertEqual(
+            reloaded.profiles[0].applicationMapping(
+                for: ApplicationMappingOverrides.codexBundleIdentifier
+            ),
+            customMapping
+        )
     }
 
     func testModifierLayersRoundTripWithExplicitNoneOverrides() throws {

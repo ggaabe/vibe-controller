@@ -6,7 +6,7 @@
 
 Vibe Controller is a native macOS app that turns an Xbox or PlayStation game controller into a desktop input device. Use the analog sticks as primary and precision cursors, map controller buttons to mouse actions or keyboard shortcuts, scroll and switch Spaces with the D-pad, and move seamlessly between nearby Macs with macOS Universal Control.
 
-The app automatically presents an Xbox or PlayStation-style live controller map, with native button names and a mappable DualSense/DualShock touchpad click. It also includes per-control remapping, adjustable cursor response, importable and exportable JSON profiles, input diagnostics, native Universal Control handoff, and an experimental network companion mode for Macs that cannot use Universal Control.
+The app automatically presents an Xbox or PlayStation-style live controller map, with native button names and a mappable DualSense/DualShock touchpad click. It also includes per-control and per-app remapping, adjustable cursor response, importable and exportable JSON profiles, input diagnostics, native Universal Control handoff, and an experimental network companion mode for Macs that cannot use Universal Control.
 
 ## Download
 
@@ -144,6 +144,24 @@ Click a button, trigger, stick-click control, or D-pad direction on the controll
 - Primary/precision cursor-speed toggling
 
 Stick roles are configured separately by clicking either stick. Shortcut assignments and cursor settings are persisted automatically.
+
+### App-specific shortcuts
+
+Use the **App** picker above the controller map to edit shortcuts for **All Apps** or for one application. Choose **Add App** to select a currently running app, browse for an installed `.app`, or install the bundled **Codex Starter** mappings. App-specific mappings are sparse overrides: any control you do not change automatically uses its **All Apps** action, including modifier-layer actions.
+
+Inside a control editor, **Use All Apps** removes that one app override. The **App Settings** menu can **Reset to All Apps** to clear every override for the selected app, remove the app from the picker entirely, or restore the Codex starter set. Saving **None** is different from removing an override: it intentionally disables that control only in the selected app.
+
+The Codex / ChatGPT starter intentionally keeps only the broadly useful chat-navigation actions. Every other control inherits its **All Apps** action:
+
+| Control | Codex action |
+| --- | --- |
+| Menu / Options | New chat (`⌘N`) |
+| LB / L1 or RB / R1 + Menu / Options | Next chat needing attention (`⌥⌘A`) |
+| LB / L1 or RB / R1 + View / Create (the All Apps copy button) | Fork chat (`⌥⇧⌘F`) |
+
+Codex exposes Fork chat as an assignable command but does not ship a default keyboard chord for it. When this starter is active and Codex is installed, Vibe Controller non-destructively adds `Command+Alt+Shift+F` for Codex's `forkThread` command in `~/.codex/keybindings.json`. Existing Codex shortcuts are preserved. On another Mac controlled through Universal Control, add the same Fork chat shortcut in Codex's **Settings → Keyboard shortcuts**; Vibe Controller itself still does not need to be installed there.
+
+Vibe Controller detects the frontmost application on the lead Mac and switches these mappings automatically. Keyboard output still follows the Universal Control pointer to another Mac, but Universal Control does not report that other Mac's frontmost app back to the lead Mac. Without a companion app on the second Mac, remote shortcuts therefore use whichever app scope is active on the lead Mac; **All Apps** remains the predictable fallback.
 
 ### Modifier layers
 

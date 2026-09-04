@@ -47,8 +47,8 @@ struct MainWindowView: View {
         .animation(.easeOut(duration: 0.2), value: appModel.setupBannerPresentation?.title)
         .sheet(item: $appModel.presentedSheet) { selection in
             switch selection {
-            case .mapping(let control, let layer):
-                MappingSheetView(control: control, layer: layer)
+            case .mapping(let control, let layer, let scope):
+                MappingSheetView(control: control, layer: layer, scope: scope)
                     .environmentObject(appModel)
             case .stick(let side):
                 StickRoleSheetView(stickSide: side)

@@ -4,6 +4,7 @@ struct ControllerDiagramView: View {
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.colorScheme) private var colorScheme
     @State private var isConfirmingLayerRemoval = false
+    @State private var pendingApplicationAction: PendingApplicationMappingAction?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -25,6 +26,8 @@ struct ControllerDiagramView: View {
                         .background(Color.secondary.opacity(0.08), in: Capsule())
                 }
             }
+
+            applicationScopeToolbar
 
             HStack(spacing: 10) {
                 Label("Layer", systemImage: "square.3.layers.3d")
@@ -129,6 +132,204 @@ struct ControllerDiagramView: View {
                 Text("This removes every shortcut override used while \(appModel.controlDisplayName(modifierControl)) is held.")
             }
         }
+        .confirmationDialog(
+            pendingApplicationAction?.title ?? "Change app shortcuts?",
+            isPresented: Binding(
+                get: { pendingApplicationAction != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingApplicationAction = nil
+                    }
+                }
+            )
+        ) {
+            if let pendingApplicationAction {
+                Button(pendingApplicationAction.confirmationTitle, role: .destructive) {
+                    perform(pendingApplicationAction)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingApplicationAction = nil
+            }
+        } message: {
+            if let pendingApplicationAction,
+               let application = appModel.selectedApplicationMapping {
+                Text(pendingApplicationAction.message(for: application.displayName))
+            }
+        }
+    }
+
+    private var applicationScopeToolbar: some View {
+        HStack(spacing: 10) {
+            Label("App", systemImage: "app.badge")
+                .font(.subheadline.weight(.semibold))
+
+            Menu {
+                ForEach(appModel.mappingScopes) { scope in
+                    Button {
+                        appModel.selectMappingScope(scope)
+                    } label: {
+                        HStack(spacing: 7) {
+                            applicationScopeIcon(scope, size: 16)
+                            Text(appModel.mappingScopeDisplayName(scope))
+                            if scope == appModel.selectedMappingScope {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    applicationScopeIcon(appModel.selectedMappingScope, size: 18)
+                    Text(appModel.mappingScopeDisplayName(appModel.selectedMappingScope))
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .frame(width: 190)
+            .frame(minHeight: 40)
+            .accessibilityLabel("App-specific shortcuts")
+            .accessibilityValue(
+                appModel.mappingScopeDisplayName(appModel.selectedMappingScope)
+            )
+
+            Menu {
+                if appModel.canAddCodexStarterMappings {
+                    Button {
+                        appModel.addCodexStarterMappings()
+                    } label: {
+                        Label("Codex Starter", systemImage: "terminal")
+                    }
+                }
+
+                let runningApplications = appModel.availableRunningApplications.filter {
+                    $0.bundleIdentifier != ApplicationMappingOverrides.codexBundleIdentifier
+                }
+                if !runningApplications.isEmpty {
+                    if appModel.canAddCodexStarterMappings {
+                        Divider()
+                    }
+                    ForEach(runningApplications) { application in
+                        Button(application.displayName) {
+                            appModel.addApplicationMappings(application)
+                        }
+                    }
+                }
+
+                Divider()
+                Button("Choose Application…") {
+                    appModel.chooseApplicationForMappings()
+                }
+            } label: {
+                Label("Add App", systemImage: "plus")
+            }
+            .frame(minHeight: 40)
+
+            if let application = appModel.selectedApplicationMapping {
+                Menu {
+                    if application.bundleIdentifier == ApplicationMappingOverrides.codexBundleIdentifier {
+                        Button("Restore Codex Starter…") {
+                            pendingApplicationAction = .restoreStarter
+                        }
+                    }
+                    Button("Reset to All Apps…") {
+                        pendingApplicationAction = .clearOverrides
+                    }
+                    .disabled(application.overrideCount == 0)
+                    Divider()
+                    Button("Remove \(application.displayName)…", role: .destructive) {
+                        pendingApplicationAction = .removeApplication
+                    }
+                } label: {
+                    Label("App Settings", systemImage: "ellipsis.circle")
+                }
+                .frame(minHeight: 40)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(appModel.selectedMappingScopeDetail)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                if let application = appModel.selectedApplicationMapping {
+                    Label(
+                        appModel.isSelectedApplicationCurrentlyActive
+                            ? "Active now"
+                            : "Applies automatically when \(application.displayName) is frontmost",
+                        systemImage: appModel.isSelectedApplicationCurrentlyActive
+                            ? "bolt.fill"
+                            : "arrow.triangle.2.circlepath"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(
+                        appModel.isSelectedApplicationCurrentlyActive
+                            ? Color.green
+                            : Color.secondary
+                    )
+                }
+            }
+            .multilineTextAlignment(.trailing)
+        }
+        .controlSize(.regular)
+        .frame(minHeight: 40)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("controller-map.application-scope")
+    }
+
+    @ViewBuilder
+    private func applicationScopeIcon(
+        _ scope: ControllerMappingScope,
+        size: CGFloat
+    ) -> some View {
+        if scope.applicationBundleIdentifier == nil {
+            Image(systemName: "square.grid.2x2.fill")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.secondary)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        } else if let icon = appModel.applicationIcon(for: scope) {
+            Image(nsImage: icon)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+                .overlay {
+                    RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
+                        .stroke(
+                            colorScheme == .dark
+                                ? Color.white.opacity(0.10)
+                                : Color.black.opacity(0.10),
+                            lineWidth: 1
+                        )
+                }
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: "app.fill")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.secondary)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func perform(_ action: PendingApplicationMappingAction) {
+        switch action {
+        case .restoreStarter:
+            appModel.restoreSelectedApplicationMappings()
+        case .clearOverrides:
+            appModel.clearSelectedApplicationMappings()
+        case .removeApplication:
+            appModel.removeSelectedApplicationMappings()
+        }
+        pendingApplicationAction = nil
     }
 
     private var canvasColors: [Color] {
@@ -146,6 +347,45 @@ struct ControllerDiagramView: View {
 
     private var borderColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08)
+    }
+}
+
+private enum PendingApplicationMappingAction {
+    case restoreStarter
+    case clearOverrides
+    case removeApplication
+
+    var title: String {
+        switch self {
+        case .restoreStarter:
+            return "Restore the Codex starter mappings?"
+        case .clearOverrides:
+            return "Reset this app to All Apps?"
+        case .removeApplication:
+            return "Remove app-specific shortcuts?"
+        }
+    }
+
+    var confirmationTitle: String {
+        switch self {
+        case .restoreStarter:
+            return "Restore Starter"
+        case .clearOverrides:
+            return "Reset to All Apps"
+        case .removeApplication:
+            return "Remove App"
+        }
+    }
+
+    func message(for applicationName: String) -> String {
+        switch self {
+        case .restoreStarter:
+            return "This replaces the current \(applicationName) overrides with Vibe Controller's Codex Micro-inspired starter controls."
+        case .clearOverrides:
+            return "This clears every \(applicationName) override. All controls will inherit their All Apps mappings."
+        case .removeApplication:
+            return "This removes \(applicationName) from the App picker. Your All Apps mappings are not changed."
+        }
     }
 }
 

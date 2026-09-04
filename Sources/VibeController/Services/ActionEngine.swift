@@ -48,7 +48,11 @@ final class ActionEngine {
         self.currentTime = currentTime
     }
 
-    func process(snapshot: ControllerSnapshot, profile: ControllerProfile) {
+    func process(
+        snapshot: ControllerSnapshot,
+        profile: ControllerProfile,
+        applicationBundleIdentifier: String? = nil
+    ) {
         let actuatedControls = Set(
             ControllerControlID.mappingControls.filter { isControlActuated($0, snapshot: snapshot) }
         )
@@ -68,7 +72,11 @@ final class ActionEngine {
         let newlyReleased = previousPressedControls.subtracting(actuatedControls)
         for control in ControllerControlID.mappingControls where newlyReleased.contains(control) {
             if armedModifierControls.contains(control) {
-                releaseModifier(control, profile: profile)
+                releaseModifier(
+                    control,
+                    profile: profile,
+                    applicationBundleIdentifier: applicationBundleIdentifier
+                )
             } else {
                 handleRelease(for: control)
             }
@@ -89,7 +97,8 @@ final class ActionEngine {
                 press(
                     modifierControl,
                     profile: profile,
-                    modifierControl: activeModifier
+                    modifierControl: activeModifier,
+                    applicationBundleIdentifier: applicationBundleIdentifier
                 )
             } else {
                 armModifier(modifierControl)
@@ -109,7 +118,8 @@ final class ActionEngine {
             press(
                 control,
                 profile: profile,
-                modifierControl: activeModifierControl(in: actuatedControls)
+                modifierControl: activeModifierControl(in: actuatedControls),
+                applicationBundleIdentifier: applicationBundleIdentifier
             )
         }
 
@@ -164,14 +174,16 @@ final class ActionEngine {
     private func press(
         _ control: ControllerControlID,
         profile: ControllerProfile,
-        modifierControl: ControllerControlID?
+        modifierControl: ControllerControlID?,
+        applicationBundleIdentifier: String?
     ) {
         if let modifierControl {
             consumedModifierControls.insert(modifierControl)
         }
         let mapping = profile.effectiveMapping(
             for: control,
-            modifierControl: modifierControl
+            modifierControl: modifierControl,
+            applicationBundleIdentifier: applicationBundleIdentifier
         )
         if mapping.triggerMode == .tap,
            suppressDuplicateTap(
@@ -212,7 +224,8 @@ final class ActionEngine {
 
     private func releaseModifier(
         _ control: ControllerControlID,
-        profile: ControllerProfile
+        profile: ControllerProfile,
+        applicationBundleIdentifier: String?
     ) {
         armedModifierControls.remove(control)
         modifierPressOrder.removeAll(where: { $0 == control })
@@ -233,7 +246,13 @@ final class ActionEngine {
         // A modifier remains dual-purpose: releasing it without using a chord
         // performs its normal action once. This deliberately treats the normal
         // mapping as a tap so a layer modifier can never leave a held key down.
-        fireModifierTapAction(profile.effectiveMapping(for: control, modifierControl: nil))
+        fireModifierTapAction(
+            profile.effectiveMapping(
+                for: control,
+                modifierControl: nil,
+                applicationBundleIdentifier: applicationBundleIdentifier
+            )
+        )
     }
 
     private func fireModifierTapAction(_ mapping: ControllerActionMapping) {

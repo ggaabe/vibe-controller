@@ -121,7 +121,8 @@ final class ProfileStore {
             name: profileName,
             cursor: profile.cursor,
             mappings: profile.mappings,
-            modifierLayers: profile.modifierLayers
+            modifierLayers: profile.modifierLayers,
+            applicationMappings: profile.applicationMappings
         )
         merged.profiles.append(imported)
         merged.activeProfileId = imported.id
@@ -130,6 +131,54 @@ final class ProfileStore {
 
     private func normalize(_ document: ProfileDocument) -> ProfileDocument {
         var normalized = document
+        if document.version < 3,
+           let gabeIndex = normalized.profiles.firstIndex(where: {
+               $0.id == ControllerProfile.gabesDefaults.id
+           }),
+           normalized.profiles[gabeIndex].applicationMapping(
+               for: ApplicationMappingOverrides.codexBundleIdentifier
+           ) == nil {
+            normalized.profiles[gabeIndex].applicationMappings.append(
+                ControllerProfile.codexStarterApplicationMappings
+            )
+        }
+        if document.version < 4 {
+            let legacyCodexRightTrigger = ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 61, modifiers: []),
+                triggerMode: .holdWhilePressed
+            )
+            for profileIndex in normalized.profiles.indices {
+                guard let applicationIndex = normalized.profiles[profileIndex]
+                    .applicationMappings.firstIndex(where: {
+                        $0.bundleIdentifier == ApplicationMappingOverrides.codexBundleIdentifier
+                    }),
+                    normalized.profiles[profileIndex]
+                    .applicationMappings[applicationIndex]
+                    .mappings[.rightTrigger] == legacyCodexRightTrigger else {
+                    continue
+                }
+                normalized.profiles[profileIndex]
+                    .applicationMappings[applicationIndex]
+                    .mappings.removeValue(forKey: .rightTrigger)
+            }
+        }
+        if document.version < 5,
+           let gabeIndex = normalized.profiles.firstIndex(where: {
+               $0.id == ControllerProfile.gabesDefaults.id
+           }),
+           let applicationIndex = normalized.profiles[gabeIndex]
+               .applicationMappings.firstIndex(where: {
+                   $0.bundleIdentifier == ApplicationMappingOverrides.codexBundleIdentifier
+               }) {
+            // Version 5 deliberately pares Gabe's Codex setup back to the
+            // small, opinionated starter. Every omitted cell falls through to
+            // All Apps, including the existing Escape, Return, and dictation
+            // controls.
+            normalized.profiles[gabeIndex]
+                .applicationMappings[applicationIndex] =
+                ControllerProfile.codexStarterApplicationMappings
+        }
         normalized.version = max(document.version, ProfileDocument.defaultDocument.version)
         if normalized.profiles.isEmpty {
             normalized.profiles = ProfileDocument.defaultDocument.profiles

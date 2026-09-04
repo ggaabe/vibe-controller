@@ -2,6 +2,15 @@
 import XCTest
 
 final class ShortcutDescriptorTests: XCTestCase {
+    func testSinglePhysicalModifierCanBeAssignedAsAHoldAction() {
+        let shortcut = ShortcutDescriptor(keyCode: 61, modifiers: [])
+
+        XCTAssertEqual(shortcut.displayString, "R⌥")
+        XCTAssertFalse(shortcut.isAssignable)
+        XCTAssertTrue(shortcut.isAssignable(for: .holdWhilePressed))
+        XCTAssertFalse(shortcut.isAssignable(for: .tap))
+    }
+
     func testDisplayStringUsesMacModifierSymbols() {
         let shortcut = ShortcutDescriptor(keyCode: 19, modifiers: [.command, .shift])
         XCTAssertEqual(shortcut.displayString, "⇧⌘2")

@@ -3,6 +3,105 @@ import XCTest
 
 @MainActor
 final class ActionEngineTests: XCTestCase {
+    func testApplicationOverrideWinsWhenThatAppIsFrontmost() {
+        let recorder = ActionEventRecorder()
+        let actionEngine = makeActionEngine(recorder: recorder)
+        let profile = ControllerProfile.gabesDefaults
+
+        actionEngine.process(
+            snapshot: snapshot(pressed: [.menu]),
+            profile: profile,
+            applicationBundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier
+        )
+
+        XCTAssertEqual(recorder.events.count, 1)
+        assertShortcut(
+            recorder.events[0],
+            equals: ShortcutDescriptor(keyCode: 45, modifiers: [.command]),
+            phase: .tap
+        )
+    }
+
+    func testEitherCodexShoulderModifierAndCopyButtonForksChat() {
+        for modifier in [ControllerControlID.leftShoulder, .rightShoulder] {
+            let recorder = ActionEventRecorder()
+            let actionEngine = makeActionEngine(recorder: recorder)
+            let profile = ControllerProfile.gabesDefaults
+
+            actionEngine.process(
+                snapshot: snapshot(pressed: [modifier, .options]),
+                profile: profile,
+                applicationBundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier
+            )
+
+            XCTAssertEqual(recorder.events.count, 1)
+            assertShortcut(
+                recorder.events[0],
+                equals: CodexKeybindingProvisioner.forkShortcut,
+                phase: .tap
+            )
+        }
+    }
+
+    func testMissingApplicationOverrideFallsBackToAllAppsMapping() {
+        let recorder = ActionEventRecorder()
+        let actionEngine = makeActionEngine(recorder: recorder)
+        let profile = ControllerProfile.gabesDefaults
+
+        actionEngine.process(
+            snapshot: snapshot(pressed: [.rightThumbstickButton]),
+            profile: profile,
+            applicationBundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier
+        )
+
+        XCTAssertEqual(recorder.events.count, 1)
+        assertShortcut(
+            recorder.events[0],
+            equals: ShortcutDescriptor(keyCode: 51, modifiers: []),
+            phase: .tap
+        )
+    }
+
+    func testCodexRightTriggerFallsBackToGlobalDictationMapping() {
+        let recorder = ActionEventRecorder()
+        let actionEngine = makeActionEngine(recorder: recorder)
+        let profile = ControllerProfile.gabesDefaults
+
+        actionEngine.process(
+            snapshot: snapshot(pressed: [.rightTrigger]),
+            profile: profile,
+            applicationBundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier
+        )
+
+        XCTAssertEqual(recorder.events.count, 1)
+        assertShortcut(
+            recorder.events[0],
+            equals: ShortcutDescriptor(keyCode: 63, modifiers: []),
+            phase: .down
+        )
+    }
+
+    func testExplicitApplicationNoneOverrideSuppressesAllAppsMapping() {
+        let recorder = ActionEventRecorder()
+        let actionEngine = makeActionEngine(recorder: recorder)
+        var profile = ControllerProfile.gabesDefaults
+        profile.applicationMappings = [
+            ApplicationMappingOverrides(
+                bundleIdentifier: "com.example.editor",
+                displayName: "Example Editor",
+                mappings: [.buttonNorth: ControllerActionMapping(actionType: .none)]
+            ),
+        ]
+
+        actionEngine.process(
+            snapshot: snapshot(pressed: [.buttonNorth]),
+            profile: profile,
+            applicationBundleIdentifier: "com.example.editor"
+        )
+
+        XCTAssertTrue(recorder.events.isEmpty)
+    }
+
     func testModifierTapRunsItsDefaultActionOnlyAfterRelease() {
         let recorder = ActionEventRecorder()
         let actionEngine = makeActionEngine(recorder: recorder)

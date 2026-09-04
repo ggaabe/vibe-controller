@@ -212,6 +212,84 @@ struct ControllerModifierLayer: Identifiable, Hashable, Sendable {
     }
 }
 
+struct ApplicationMappingOverrides: Identifiable, Hashable, Sendable {
+    static let codexBundleIdentifier = "com.openai.codex"
+
+    var bundleIdentifier: String
+    var displayName: String
+    var mappings: [ControllerControlID: ControllerActionMapping]
+    var modifierLayers: [ControllerModifierLayer]
+
+    var id: String { bundleIdentifier }
+
+    init(
+        bundleIdentifier: String,
+        displayName: String,
+        mappings: [ControllerControlID: ControllerActionMapping] = [:],
+        modifierLayers: [ControllerModifierLayer] = []
+    ) {
+        self.bundleIdentifier = bundleIdentifier
+        self.displayName = displayName
+        self.mappings = mappings
+        self.modifierLayers = modifierLayers
+    }
+
+    func modifierLayer(for control: ControllerControlID) -> ControllerModifierLayer? {
+        modifierLayers.first(where: { $0.modifierControl == control })
+    }
+
+    func exactOverride(
+        for control: ControllerControlID,
+        modifierControl: ControllerControlID?
+    ) -> ControllerActionMapping? {
+        if let modifierControl {
+            return modifierLayer(for: modifierControl)?.mappings[control]
+        }
+        return mappings[control]
+    }
+
+    var overrideCount: Int {
+        mappings.count + modifierLayers.reduce(0) { $0 + $1.mappings.count }
+    }
+}
+
+extension ApplicationMappingOverrides: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case bundleIdentifier
+        case displayName
+        case mappings
+        case modifierLayers
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bundleIdentifier = try container.decode(String.self, forKey: .bundleIdentifier)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        let rawMappings = try container.decodeIfPresent(
+            [String: ControllerActionMapping].self,
+            forKey: .mappings
+        ) ?? [:]
+        mappings = Dictionary(
+            uniqueKeysWithValues: rawMappings.compactMap { key, value in
+                ControllerControlID(rawValue: key).map { ($0, value) }
+            }
+        )
+        modifierLayers = try container.decodeIfPresent(
+            [ControllerModifierLayer].self,
+            forKey: .modifierLayers
+        ) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(bundleIdentifier, forKey: .bundleIdentifier)
+        try container.encode(displayName, forKey: .displayName)
+        let rawMappings = Dictionary(uniqueKeysWithValues: mappings.map { ($0.key.rawValue, $0.value) })
+        try container.encode(rawMappings, forKey: .mappings)
+        try container.encode(modifierLayers, forKey: .modifierLayers)
+    }
+}
+
 extension ControllerModifierLayer: Codable {
     private enum CodingKeys: String, CodingKey {
         case modifierControl
@@ -362,29 +440,56 @@ struct ControllerProfile: Identifiable, Hashable, Sendable {
     var cursor: CursorConfiguration
     var mappings: [ControllerControlID: ControllerActionMapping]
     var modifierLayers: [ControllerModifierLayer]
+    var applicationMappings: [ApplicationMappingOverrides]
 
     init(
         id: String,
         name: String,
         cursor: CursorConfiguration,
         mappings: [ControllerControlID: ControllerActionMapping],
-        modifierLayers: [ControllerModifierLayer] = []
+        modifierLayers: [ControllerModifierLayer] = [],
+        applicationMappings: [ApplicationMappingOverrides] = []
     ) {
         self.id = id
         self.name = name
         self.cursor = cursor
         self.mappings = mappings
         self.modifierLayers = modifierLayers
+        self.applicationMappings = applicationMappings
     }
 
     func modifierLayer(for control: ControllerControlID) -> ControllerModifierLayer? {
         modifierLayers.first(where: { $0.modifierControl == control })
     }
 
+    func applicationMapping(for bundleIdentifier: String) -> ApplicationMappingOverrides? {
+        applicationMappings.first(where: { $0.bundleIdentifier == bundleIdentifier })
+    }
+
+    func applicationOverride(
+        for control: ControllerControlID,
+        modifierControl: ControllerControlID?,
+        applicationBundleIdentifier: String?
+    ) -> ControllerActionMapping? {
+        guard let applicationBundleIdentifier else { return nil }
+        return applicationMapping(for: applicationBundleIdentifier)?.exactOverride(
+            for: control,
+            modifierControl: modifierControl
+        )
+    }
+
     func effectiveMapping(
         for control: ControllerControlID,
-        modifierControl: ControllerControlID?
+        modifierControl: ControllerControlID?,
+        applicationBundleIdentifier: String? = nil
     ) -> ControllerActionMapping {
+        if let applicationOverride = applicationOverride(
+            for: control,
+            modifierControl: modifierControl,
+            applicationBundleIdentifier: applicationBundleIdentifier
+        ) {
+            return applicationOverride
+        }
         if let modifierControl,
            let override = modifierLayer(for: modifierControl)?.mappings[control] {
             return override
@@ -400,6 +505,7 @@ extension ControllerProfile: Codable {
         case cursor
         case mappings
         case modifierLayers
+        case applicationMappings
     }
 
     init(from decoder: Decoder) throws {
@@ -417,6 +523,10 @@ extension ControllerProfile: Codable {
             [ControllerModifierLayer].self,
             forKey: .modifierLayers
         ) ?? []
+        applicationMappings = try container.decodeIfPresent(
+            [ApplicationMappingOverrides].self,
+            forKey: .applicationMappings
+        ) ?? []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -427,6 +537,7 @@ extension ControllerProfile: Codable {
         let rawMappings = Dictionary(uniqueKeysWithValues: mappings.map { ($0.key.rawValue, $0.value) })
         try container.encode(rawMappings, forKey: .mappings)
         try container.encode(modifierLayers, forKey: .modifierLayers)
+        try container.encode(applicationMappings, forKey: .applicationMappings)
     }
 }
 
@@ -437,6 +548,45 @@ struct ProfileDocument: Codable, Hashable, Sendable {
 }
 
 extension ControllerProfile {
+    static let codexStarterApplicationMappings = ApplicationMappingOverrides(
+        bundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier,
+        displayName: "Codex / ChatGPT",
+        mappings: [
+            .menu: ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 45, modifiers: [.command]),
+                triggerMode: .tap
+            ),
+        ],
+        modifierLayers: [
+            codexModifierLayer(.leftShoulder),
+            codexModifierLayer(.rightShoulder),
+        ]
+    )
+
+    private static func codexModifierLayer(
+        _ modifierControl: ControllerControlID
+    ) -> ControllerModifierLayer {
+        ControllerModifierLayer(
+            modifierControl: modifierControl,
+            mappings: [
+                .menu: ControllerActionMapping(
+                    actionType: .keyboardShortcut,
+                    shortcut: ShortcutDescriptor(
+                        keyCode: 0,
+                        modifiers: [.option, .command]
+                    ),
+                    triggerMode: .tap
+                ),
+                .options: ControllerActionMapping(
+                    actionType: .keyboardShortcut,
+                    shortcut: CodexKeybindingProvisioner.forkShortcut,
+                    triggerMode: .tap
+                ),
+            ]
+        )
+    }
+
     static let gabesDefaults = ControllerProfile(
         id: "gabes-defaults",
         name: "Gabe's Defaults",
@@ -555,13 +705,14 @@ extension ControllerProfile {
                     .dpadDown: ControllerActionMapping(actionType: .crossEdgeDown),
                 ]
             ),
-        ]
+        ],
+        applicationMappings: [ControllerProfile.codexStarterApplicationMappings]
     )
 }
 
 extension ProfileDocument {
     static let defaultDocument = ProfileDocument(
-        version: 2,
+        version: 5,
         profiles: [.gabesDefaults],
         activeProfileId: ControllerProfile.gabesDefaults.id
     )

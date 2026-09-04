@@ -6,6 +6,7 @@ struct MappingSheetView: View {
 
     let control: ControllerControlID
     let layer: ControllerMappingLayer
+    let scope: ControllerMappingScope
 
     @State private var mapping = ControllerActionMapping()
     @State private var isCapturingShortcut = false
@@ -14,6 +15,20 @@ struct MappingSheetView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text(title)
                 .font(.title2.weight(.semibold))
+            if scope.applicationBundleIdentifier != nil {
+                HStack(spacing: 8) {
+                    Label(
+                        "Only in \(appModel.mappingScopeDisplayName(scope))",
+                        systemImage: "app.badge"
+                    )
+                    .font(.subheadline.weight(.medium))
+                    if !appModel.hasMappingOverride(for: control, in: layer, scope: scope) {
+                        Text("Uses All Apps until you save an override")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
             if case .modifier(let modifierControl) = layer {
                 HStack(spacing: 8) {
                     Label(
@@ -21,14 +36,15 @@ struct MappingSheetView: View {
                         systemImage: "square.3.layers.3d"
                     )
                     .font(.subheadline.weight(.medium))
-                    if !appModel.hasMappingOverride(for: control, in: layer) {
+                    if scope.applicationBundleIdentifier == nil,
+                       !appModel.hasMappingOverride(for: control, in: layer, scope: scope) {
                         Text("Uses Default until you save an override")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
-            Text("Current mapping: \(appModel.mapping(for: control, in: layer).summary)")
+            Text("Current mapping: \(appModel.mapping(for: control, in: layer, scope: scope).summary)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -80,38 +96,42 @@ struct MappingSheetView: View {
                                 }
                             }
                         }
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 10) {
-                                Button("Return") {
-                                    mapping.shortcut = ShortcutDescriptor(keyCode: 36, modifiers: [])
-                                }
-                                Button("Escape") {
-                                    mapping.shortcut = ShortcutDescriptor(keyCode: 53, modifiers: [])
-                                }
-                                Button("fn") {
-                                    mapping.shortcut = ShortcutDescriptor(keyCode: 63, modifiers: [])
-                                }
-                                Button("Delete") {
-                                    mapping.shortcut = ShortcutDescriptor(keyCode: 51, modifiers: [])
-                                }
-                                Button("⌘⇧2") {
-                                    mapping.shortcut = ShortcutDescriptor(keyCode: 19, modifiers: [.command, .shift])
-                                }
+                        LazyVGrid(
+                            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
+                            spacing: 8
+                        ) {
+                            Button("Return") {
+                                mapping.shortcut = ShortcutDescriptor(keyCode: 36, modifiers: [])
                             }
-                            HStack(spacing: 10) {
-                                Button("L⌘ + R⌘") {
-                                    mapping.shortcut = .leftRightModifierChord(.command)
-                                    isCapturingShortcut = false
-                                }
-                                Button("⌘⌃⇧4") {
-                                    mapping.shortcut = ShortcutDescriptor(keyCode: 21, modifiers: [.command, .control, .shift])
-                                }
-                                Button("Forward Delete") {
-                                    mapping.shortcut = ShortcutDescriptor(keyCode: 117, modifiers: [])
-                                }
-                                Button("Clear Shortcut") {
-                                    mapping.shortcut = nil
-                                }
+                            Button("Escape") {
+                                mapping.shortcut = ShortcutDescriptor(keyCode: 53, modifiers: [])
+                            }
+                            Button("fn") {
+                                mapping.shortcut = ShortcutDescriptor(keyCode: 63, modifiers: [])
+                            }
+                            Button("Right Option") {
+                                mapping.shortcut = ShortcutDescriptor(keyCode: 61, modifiers: [])
+                                mapping.triggerMode = .holdWhilePressed
+                                isCapturingShortcut = false
+                            }
+                            Button("Delete") {
+                                mapping.shortcut = ShortcutDescriptor(keyCode: 51, modifiers: [])
+                            }
+                            Button("⌘⇧2") {
+                                mapping.shortcut = ShortcutDescriptor(keyCode: 19, modifiers: [.command, .shift])
+                            }
+                            Button("L⌘ + R⌘") {
+                                mapping.shortcut = .leftRightModifierChord(.command)
+                                isCapturingShortcut = false
+                            }
+                            Button("⌘⌃⇧4") {
+                                mapping.shortcut = ShortcutDescriptor(keyCode: 21, modifiers: [.command, .control, .shift])
+                            }
+                            Button("Forward Delete") {
+                                mapping.shortcut = ShortcutDescriptor(keyCode: 117, modifiers: [])
+                            }
+                            Button("Clear Shortcut") {
+                                mapping.shortcut = nil
                             }
                         }
                         if let validationError {
@@ -156,9 +176,9 @@ struct MappingSheetView: View {
             .formStyle(.grouped)
 
             HStack {
-                if appModel.hasMappingOverride(for: control, in: layer) {
-                    Button("Use Default") {
-                        appModel.clearMappingOverride(for: control, in: layer)
+                if appModel.hasMappingOverride(for: control, in: layer, scope: scope) {
+                    Button(scope.applicationBundleIdentifier == nil ? "Use Default" : "Use All Apps") {
+                        appModel.clearMappingOverride(for: control, in: layer, scope: scope)
                         dismiss()
                     }
                     .frame(minHeight: 40)
@@ -169,7 +189,7 @@ struct MappingSheetView: View {
                 }
                 .frame(minHeight: 40)
                 Button(saveButtonTitle) {
-                    appModel.saveMapping(mapping, for: control, in: layer)
+                    appModel.saveMapping(mapping, for: control, in: layer, scope: scope)
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
@@ -181,20 +201,26 @@ struct MappingSheetView: View {
         .padding(24)
         .frame(width: 560)
         .onAppear {
-            mapping = appModel.mapping(for: control, in: layer)
+            mapping = appModel.mapping(for: control, in: layer, scope: scope)
         }
     }
 
     private var title: String {
+        let controlTitle: String
         switch layer {
         case .base:
-            return appModel.controlDisplayName(control)
+            controlTitle = appModel.controlDisplayName(control)
         case .modifier(let modifierControl):
-            return "\(appModel.controlDisplayName(modifierControl)) + \(appModel.controlDisplayName(control))"
+            controlTitle = "\(appModel.controlDisplayName(modifierControl)) + \(appModel.controlDisplayName(control))"
         }
+        guard scope.applicationBundleIdentifier != nil else { return controlTitle }
+        return "\(appModel.mappingScopeDisplayName(scope)) · \(controlTitle)"
     }
 
     private var saveButtonTitle: String {
+        if scope.applicationBundleIdentifier != nil {
+            return "Save App Override"
+        }
         if case .modifier = layer {
             return "Save Override"
         }
@@ -210,9 +236,9 @@ struct MappingSheetView: View {
         guard let shortcut = mapping.shortcut else {
             return "Choose a shortcut"
         }
-        return shortcut.isAssignable
+        return shortcut.isAssignable(for: mapping.triggerMode)
             ? nil
-            : "Use a non-modifier key or a matching left/right modifier pair"
+            : "Use a non-modifier key, a matching left/right pair, or Hold while pressed for one modifier key"
     }
 
     private var duplicateWarning: String? {
@@ -220,7 +246,8 @@ struct MappingSheetView: View {
         let duplicates = appModel.duplicateAssignments(
             for: shortcut,
             excluding: control,
-            in: layer
+            in: layer,
+            scope: scope
         )
         guard !duplicates.isEmpty else { return nil }
         let names = duplicates.map { appModel.controlDisplayName($0) }.joined(separator: ", ")

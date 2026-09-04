@@ -2,6 +2,33 @@ import AppKit
 import Combine
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
+
+enum ControllerMappingScope: Hashable, Identifiable {
+    case allApplications
+    case application(String)
+
+    var id: String {
+        switch self {
+        case .allApplications:
+            return "all-applications"
+        case .application(let bundleIdentifier):
+            return "application-\(bundleIdentifier)"
+        }
+    }
+
+    var applicationBundleIdentifier: String? {
+        guard case .application(let bundleIdentifier) = self else { return nil }
+        return bundleIdentifier
+    }
+}
+
+struct MappingApplicationChoice: Identifiable, Hashable {
+    let bundleIdentifier: String
+    let displayName: String
+
+    var id: String { bundleIdentifier }
+}
 
 enum ControllerMappingLayer: Hashable, Identifiable {
     case base
@@ -40,13 +67,13 @@ enum ControllerMappingLayer: Hashable, Identifiable {
 }
 
 enum ControllerSheetSelection: Identifiable {
-    case mapping(ControllerControlID, ControllerMappingLayer)
+    case mapping(ControllerControlID, ControllerMappingLayer, ControllerMappingScope)
     case stick(StickSide)
 
     var id: String {
         switch self {
-        case .mapping(let control, let layer):
-            return "mapping-\(layer.id)-\(control.rawValue)"
+        case .mapping(let control, let layer, let scope):
+            return "mapping-\(scope.id)-\(layer.id)-\(control.rawValue)"
         case .stick(let side):
             return "stick-\(side.rawValue)"
         }
@@ -123,7 +150,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var companionHandoffDebug = "No handoff activity yet."
     @Published private(set) var virtualHardwareSetupPhase: VirtualHardwareSetupPhase = .checking
     @Published private(set) var appUpdateState: AppUpdateState = .idle
+    @Published private(set) var selectedMappingScope: ControllerMappingScope = .allApplications
     @Published private(set) var selectedMappingLayer: ControllerMappingLayer = .base
+    @Published private(set) var frontmostApplicationBundleIdentifier: String?
     @Published var presentedSheet: ControllerSheetSelection?
     @Published var lastErrorMessage: String?
 
@@ -145,6 +174,7 @@ final class AppModel: ObservableObject {
     private var didAutomaticallyOpenSupportInstaller = false
     private var didAutomaticallyRequestDriverActivation = false
     private var driverStatusWaitStartedAt: Date?
+    private var applicationIconCache: [String: NSImage] = [:]
 
     init(
         profileStore: ProfileStore = ProfileStore(),
@@ -163,6 +193,7 @@ final class AppModel: ObservableObject {
         self.appUpdateService = appUpdateService
 
         let loadedDocument = (try? profileStore.loadOrCreate()) ?? ProfileDocument.defaultDocument
+        let frontmostApplication = NSWorkspace.shared.frontmostApplication
         self.document = loadedDocument
         self.activeProfileID = profileStore.effectiveActiveProfileID(for: loadedDocument)
         self.controllerSnapshot = controllerManager.snapshot
@@ -170,6 +201,7 @@ final class AppModel: ObservableObject {
         self.accessibilityRepairRecommended = permissionManager.accessibilityRepairRecommended
         self.isRuntimeEnabled = profileStore.loadEnabledState()
         self.isAppFrontmost = NSApp.isActive
+        self.frontmostApplicationBundleIdentifier = frontmostApplication?.bundleIdentifier
         userDefaults.register(defaults: [
             Self.companionModeKey: CompanionMode.defaultMode.rawValue,
         ])
@@ -287,12 +319,28 @@ final class AppModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        NSWorkspace.shared.notificationCenter.publisher(
+            for: NSWorkspace.didActivateApplicationNotification
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] notification in
+            let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                as? NSRunningApplication
+            self?.handleFrontmostApplicationChange(application)
+        }
+        .store(in: &cancellables)
+
         persistDocument()
+        provisionCodexForkShortcutIfNeeded()
         companionManager.setMode(companionMode)
         syncMovementInterceptor()
         syncCursorConfiguration()
         if controllerSnapshot.isConnected {
-            actionEngine.process(snapshot: controllerSnapshot, profile: activeProfile)
+            actionEngine.process(
+                snapshot: controllerSnapshot,
+                profile: activeProfile,
+                applicationBundleIdentifier: frontmostApplicationBundleIdentifier
+            )
         }
         startAutomaticSetupMonitoring()
         Task { [appUpdateService] in
@@ -579,8 +627,10 @@ final class AppModel: ObservableObject {
         activeProfileID = profileID
         document.activeProfileId = profileID
         profileStore.setActiveProfileID(profileID)
+        selectedMappingScope = .allApplications
         selectedMappingLayer = .base
         persistDocument()
+        provisionCodexForkShortcutIfNeeded()
         syncCursorConfiguration()
     }
 
@@ -594,7 +644,11 @@ final class AppModel: ObservableObject {
             shutdown()
         } else {
             syncCursorConfiguration()
-            actionEngine.process(snapshot: controllerSnapshot, profile: activeProfile)
+            actionEngine.process(
+                snapshot: controllerSnapshot,
+                profile: activeProfile,
+                applicationBundleIdentifier: frontmostApplicationBundleIdentifier
+            )
         }
     }
 
@@ -610,8 +664,11 @@ final class AppModel: ObservableObject {
             profile.cursor = defaults.cursor
             profile.mappings = defaults.mappings
             profile.modifierLayers = defaults.modifierLayers
+            profile.applicationMappings = defaults.applicationMappings
         }
+        selectedMappingScope = .allApplications
         selectedMappingLayer = .base
+        provisionCodexForkShortcutIfNeeded()
     }
 
     func presentMapping(for control: ControllerControlID) {
@@ -622,7 +679,7 @@ final class AppModel: ObservableObject {
         } else {
             editingLayer = visibleMappingLayer
         }
-        presentedSheet = .mapping(control, editingLayer)
+        presentedSheet = .mapping(control, editingLayer, selectedMappingScope)
     }
 
     func presentStickSheet(for side: StickSide) {
@@ -631,6 +688,188 @@ final class AppModel: ObservableObject {
 
     var mappingLayers: [ControllerMappingLayer] {
         [.base] + activeProfile.modifierLayers.map { .modifier($0.modifierControl) }
+    }
+
+    var mappingScopes: [ControllerMappingScope] {
+        [.allApplications] + activeProfile.applicationMappings.map {
+            .application($0.bundleIdentifier)
+        }
+    }
+
+    func mappingScopeDisplayName(_ scope: ControllerMappingScope) -> String {
+        guard let bundleIdentifier = scope.applicationBundleIdentifier else {
+            return "All Apps"
+        }
+        return activeProfile.applicationMapping(for: bundleIdentifier)?.displayName
+            ?? bundleIdentifier
+    }
+
+    func applicationIcon(for scope: ControllerMappingScope) -> NSImage? {
+        guard let bundleIdentifier = scope.applicationBundleIdentifier else { return nil }
+        if let cachedIcon = applicationIconCache[bundleIdentifier] {
+            return cachedIcon
+        }
+        guard let applicationURL = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: bundleIdentifier
+        ) else {
+            return nil
+        }
+        let icon = NSWorkspace.shared.icon(forFile: applicationURL.path)
+        applicationIconCache[bundleIdentifier] = icon
+        return icon
+    }
+
+    var selectedApplicationMapping: ApplicationMappingOverrides? {
+        guard let bundleIdentifier = selectedMappingScope.applicationBundleIdentifier else {
+            return nil
+        }
+        return activeProfile.applicationMapping(for: bundleIdentifier)
+    }
+
+    var selectedMappingScopeDetail: String {
+        guard let application = selectedApplicationMapping else {
+            return "System-wide controller mappings"
+        }
+        let count = application.overrideCount
+        let controls = count == 1 ? "1 override" : "\(count) overrides"
+        return "\(controls) · Everything else uses All Apps"
+    }
+
+    var isSelectedApplicationCurrentlyActive: Bool {
+        selectedMappingScope.applicationBundleIdentifier == frontmostApplicationBundleIdentifier
+    }
+
+    var availableRunningApplications: [MappingApplicationChoice] {
+        let configured = Set(activeProfile.applicationMappings.map(\.bundleIdentifier))
+        let ownBundleIdentifier = Bundle.main.bundleIdentifier
+        var choicesByBundleIdentifier: [String: MappingApplicationChoice] = [:]
+        for application in NSWorkspace.shared.runningApplications
+        where application.activationPolicy == .regular {
+            guard let bundleIdentifier = application.bundleIdentifier,
+                  bundleIdentifier != ownBundleIdentifier,
+                  !configured.contains(bundleIdentifier) else {
+                continue
+            }
+            let choice = MappingApplicationChoice(
+                bundleIdentifier: bundleIdentifier,
+                displayName: application.localizedName ?? bundleIdentifier
+            )
+            choicesByBundleIdentifier[bundleIdentifier] = choice
+        }
+        return choicesByBundleIdentifier.values.sorted {
+            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+    }
+
+    var canAddCodexStarterMappings: Bool {
+        activeProfile.applicationMapping(
+            for: ApplicationMappingOverrides.codexBundleIdentifier
+        ) == nil
+    }
+
+    func selectMappingScope(_ scope: ControllerMappingScope) {
+        guard mappingScopes.contains(scope) else { return }
+        selectedMappingScope = scope
+    }
+
+    func addCodexStarterMappings() {
+        addApplicationMappings(
+            bundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier,
+            displayName: "Codex / ChatGPT",
+            starterMappings: ControllerProfile.codexStarterApplicationMappings
+        )
+        provisionCodexForkShortcutIfNeeded()
+    }
+
+    func addApplicationMappings(_ choice: MappingApplicationChoice) {
+        let starter = choice.bundleIdentifier == ApplicationMappingOverrides.codexBundleIdentifier
+            ? ControllerProfile.codexStarterApplicationMappings
+            : nil
+        addApplicationMappings(
+            bundleIdentifier: choice.bundleIdentifier,
+            displayName: choice.displayName,
+            starterMappings: starter
+        )
+    }
+
+    func chooseApplicationForMappings() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an app for controller shortcuts"
+        panel.prompt = "Add App"
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        guard panel.runModal() == .OK,
+              let applicationURL = panel.url,
+              let applicationBundle = Bundle(url: applicationURL),
+              let bundleIdentifier = applicationBundle.bundleIdentifier else {
+            return
+        }
+        let displayName = applicationBundle.object(
+            forInfoDictionaryKey: "CFBundleDisplayName"
+        ) as? String ?? applicationBundle.object(
+            forInfoDictionaryKey: "CFBundleName"
+        ) as? String ?? applicationURL.deletingPathExtension().lastPathComponent
+        addApplicationMappings(
+            MappingApplicationChoice(
+                bundleIdentifier: bundleIdentifier,
+                displayName: displayName
+            )
+        )
+    }
+
+    func restoreSelectedApplicationMappings() {
+        guard let bundleIdentifier = selectedMappingScope.applicationBundleIdentifier else { return }
+        updateActiveProfile { profile in
+            guard let index = profile.applicationMappings.firstIndex(where: {
+                $0.bundleIdentifier == bundleIdentifier
+            }) else { return }
+            if bundleIdentifier == ApplicationMappingOverrides.codexBundleIdentifier {
+                profile.applicationMappings[index] = ControllerProfile.codexStarterApplicationMappings
+            } else {
+                profile.applicationMappings[index].mappings.removeAll()
+                profile.applicationMappings[index].modifierLayers.removeAll()
+            }
+        }
+        provisionCodexForkShortcutIfNeeded()
+    }
+
+    private func provisionCodexForkShortcutIfNeeded() {
+        guard activeProfile.applicationMapping(
+            for: ApplicationMappingOverrides.codexBundleIdentifier
+        ) != nil,
+        NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier
+        ) != nil else {
+            return
+        }
+        do {
+            _ = try CodexKeybindingProvisioner.ensureForkShortcut()
+        } catch {
+            NSLog("Unable to provision Codex Fork shortcut: %@", String(describing: error))
+        }
+    }
+
+    func clearSelectedApplicationMappings() {
+        guard let bundleIdentifier = selectedMappingScope.applicationBundleIdentifier else { return }
+        updateActiveProfile { profile in
+            guard let index = profile.applicationMappings.firstIndex(where: {
+                $0.bundleIdentifier == bundleIdentifier
+            }) else { return }
+            profile.applicationMappings[index].mappings.removeAll()
+            profile.applicationMappings[index].modifierLayers.removeAll()
+        }
+    }
+
+    func removeSelectedApplicationMappings() {
+        guard let bundleIdentifier = selectedMappingScope.applicationBundleIdentifier else { return }
+        updateActiveProfile { profile in
+            profile.applicationMappings.removeAll {
+                $0.bundleIdentifier == bundleIdentifier
+            }
+        }
+        selectedMappingScope = .allApplications
     }
 
     func controlDisplayName(_ control: ControllerControlID) -> String {
@@ -721,6 +960,33 @@ final class AppModel: ObservableObject {
             profile.modifierLayers.removeAll {
                 $0.modifierControl == modifierControl
             }
+            for index in profile.applicationMappings.indices {
+                profile.applicationMappings[index].modifierLayers.removeAll {
+                    $0.modifierControl == modifierControl
+                }
+            }
+        }
+    }
+
+    func mapping(
+        for control: ControllerControlID,
+        in layer: ControllerMappingLayer,
+        scope: ControllerMappingScope
+    ) -> ControllerActionMapping {
+        let applicationBundleIdentifier = scope.applicationBundleIdentifier
+        switch layer {
+        case .base:
+            return activeProfile.effectiveMapping(
+                for: control,
+                modifierControl: nil,
+                applicationBundleIdentifier: applicationBundleIdentifier
+            )
+        case .modifier(let modifierControl):
+            return activeProfile.effectiveMapping(
+                for: control,
+                modifierControl: modifierControl,
+                applicationBundleIdentifier: applicationBundleIdentifier
+            )
         }
     }
 
@@ -728,23 +994,37 @@ final class AppModel: ObservableObject {
         for control: ControllerControlID,
         in layer: ControllerMappingLayer
     ) -> ControllerActionMapping {
-        switch layer {
-        case .base:
-            return activeProfile.effectiveMapping(for: control, modifierControl: nil)
-        case .modifier(let modifierControl):
-            return activeProfile.effectiveMapping(
+        mapping(for: control, in: layer, scope: selectedMappingScope)
+    }
+
+    func hasMappingOverride(
+        for control: ControllerControlID,
+        in layer: ControllerMappingLayer,
+        scope: ControllerMappingScope
+    ) -> Bool {
+        if let applicationBundleIdentifier = scope.applicationBundleIdentifier {
+            let modifierControl: ControllerControlID?
+            switch layer {
+            case .base:
+                modifierControl = nil
+            case .modifier(let control):
+                modifierControl = control
+            }
+            return activeProfile.applicationOverride(
                 for: control,
-                modifierControl: modifierControl
-            )
+                modifierControl: modifierControl,
+                applicationBundleIdentifier: applicationBundleIdentifier
+            ) != nil
         }
+        guard case .modifier(let modifierControl) = layer else { return false }
+        return activeProfile.modifierLayer(for: modifierControl)?.mappings[control] != nil
     }
 
     func hasMappingOverride(
         for control: ControllerControlID,
         in layer: ControllerMappingLayer
     ) -> Bool {
-        guard case .modifier(let modifierControl) = layer else { return false }
-        return activeProfile.modifierLayer(for: modifierControl)?.mappings[control] != nil
+        hasMappingOverride(for: control, in: layer, scope: selectedMappingScope)
     }
 
     func mapping(for control: ControllerControlID) -> ControllerActionMapping {
@@ -765,12 +1045,21 @@ final class AppModel: ObservableObject {
         }
         switch visibleMappingLayer {
         case .base:
-            return mapping(for: control, in: .base).summary
+            let summary = mapping(for: control, in: .base).summary
+            return selectedMappingScope.applicationBundleIdentifier != nil &&
+                !hasMappingOverride(for: control, in: .base)
+                ? "All Apps · \(summary)"
+                : summary
         case .modifier(let modifierControl):
             if control == modifierControl {
                 return "Layer Modifier"
             }
             let summary = mapping(for: control, in: visibleMappingLayer).summary
+            if selectedMappingScope.applicationBundleIdentifier != nil {
+                return hasMappingOverride(for: control, in: visibleMappingLayer)
+                    ? summary
+                    : "All Apps · \(summary)"
+            }
             return hasMappingOverride(for: control, in: visibleMappingLayer)
                 ? summary
                 : "Default · \(summary)"
@@ -780,9 +1069,35 @@ final class AppModel: ObservableObject {
     func saveMapping(
         _ mapping: ControllerActionMapping,
         for control: ControllerControlID,
-        in layer: ControllerMappingLayer
+        in layer: ControllerMappingLayer,
+        scope: ControllerMappingScope
     ) {
         updateActiveProfile { profile in
+            if let applicationBundleIdentifier = scope.applicationBundleIdentifier {
+                guard let applicationIndex = profile.applicationMappings.firstIndex(where: {
+                    $0.bundleIdentifier == applicationBundleIdentifier
+                }) else { return }
+                switch layer {
+                case .base:
+                    profile.applicationMappings[applicationIndex].mappings[control] = mapping
+                case .modifier(let modifierControl):
+                    if let modifierIndex = profile.applicationMappings[applicationIndex]
+                        .modifierLayers.firstIndex(where: {
+                            $0.modifierControl == modifierControl
+                        }) {
+                        profile.applicationMappings[applicationIndex]
+                            .modifierLayers[modifierIndex].mappings[control] = mapping
+                    } else {
+                        profile.applicationMappings[applicationIndex].modifierLayers.append(
+                            ControllerModifierLayer(
+                                modifierControl: modifierControl,
+                                mappings: [control: mapping]
+                            )
+                        )
+                    }
+                }
+                return
+            }
             switch layer {
             case .base:
                 if mapping.actionType == .none {
@@ -801,12 +1116,45 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func clearMappingOverride(
+    func saveMapping(
+        _ mapping: ControllerActionMapping,
         for control: ControllerControlID,
         in layer: ControllerMappingLayer
     ) {
-        guard case .modifier(let modifierControl) = layer else { return }
+        saveMapping(mapping, for: control, in: layer, scope: selectedMappingScope)
+    }
+
+    func clearMappingOverride(
+        for control: ControllerControlID,
+        in layer: ControllerMappingLayer,
+        scope: ControllerMappingScope
+    ) {
         updateActiveProfile { profile in
+            if let applicationBundleIdentifier = scope.applicationBundleIdentifier {
+                guard let applicationIndex = profile.applicationMappings.firstIndex(where: {
+                    $0.bundleIdentifier == applicationBundleIdentifier
+                }) else { return }
+                switch layer {
+                case .base:
+                    profile.applicationMappings[applicationIndex].mappings.removeValue(
+                        forKey: control
+                    )
+                case .modifier(let modifierControl):
+                    guard let modifierIndex = profile.applicationMappings[applicationIndex]
+                        .modifierLayers.firstIndex(where: {
+                            $0.modifierControl == modifierControl
+                        }) else { return }
+                    profile.applicationMappings[applicationIndex]
+                        .modifierLayers[modifierIndex].mappings.removeValue(forKey: control)
+                    if profile.applicationMappings[applicationIndex]
+                        .modifierLayers[modifierIndex].mappings.isEmpty {
+                        profile.applicationMappings[applicationIndex]
+                            .modifierLayers.remove(at: modifierIndex)
+                    }
+                }
+                return
+            }
+            guard case .modifier(let modifierControl) = layer else { return }
             guard let index = profile.modifierLayers.firstIndex(where: {
                 $0.modifierControl == modifierControl
             }) else { return }
@@ -814,13 +1162,21 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func clearMappingOverride(
+        for control: ControllerControlID,
+        in layer: ControllerMappingLayer
+    ) {
+        clearMappingOverride(for: control, in: layer, scope: selectedMappingScope)
+    }
+
     func duplicateAssignments(
         for shortcut: ShortcutDescriptor,
         excluding control: ControllerControlID,
-        in layer: ControllerMappingLayer
+        in layer: ControllerMappingLayer,
+        scope: ControllerMappingScope
     ) -> [ControllerControlID] {
         ControllerControlID.mappingControls.compactMap { candidate in
-            let candidateMapping = mapping(for: candidate, in: layer)
+            let candidateMapping = mapping(for: candidate, in: layer, scope: scope)
             guard candidate != control,
                   candidateMapping.actionType == .keyboardShortcut,
                   candidateMapping.shortcut?.duplicateKey == shortcut.duplicateKey else {
@@ -830,11 +1186,25 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func duplicateAssignments(
+        for shortcut: ShortcutDescriptor,
+        excluding control: ControllerControlID,
+        in layer: ControllerMappingLayer
+    ) -> [ControllerControlID] {
+        duplicateAssignments(
+            for: shortcut,
+            excluding: control,
+            in: layer,
+            scope: selectedMappingScope
+        )
+    }
+
     func importProfile(from url: URL) {
         do {
             let updated = try profileStore.importProfile(from: url, into: document)
             document = updated
             activeProfileID = updated.activeProfileId
+            selectedMappingScope = .allApplications
             selectedMappingLayer = .base
             profileStore.setActiveProfileID(activeProfileID)
             persistDocument()
@@ -971,6 +1341,33 @@ final class AppModel: ObservableObject {
         syncCursorConfiguration()
     }
 
+    private func addApplicationMappings(
+        bundleIdentifier: String,
+        displayName: String,
+        starterMappings: ApplicationMappingOverrides?
+    ) {
+        if activeProfile.applicationMapping(for: bundleIdentifier) == nil {
+            updateActiveProfile { profile in
+                profile.applicationMappings.append(
+                    starterMappings ?? ApplicationMappingOverrides(
+                        bundleIdentifier: bundleIdentifier,
+                        displayName: displayName
+                    )
+                )
+            }
+        }
+        selectedMappingScope = .application(bundleIdentifier)
+        selectedMappingLayer = .base
+    }
+
+    private func handleFrontmostApplicationChange(_ application: NSRunningApplication?) {
+        let bundleIdentifier = application?.bundleIdentifier
+        guard bundleIdentifier != frontmostApplicationBundleIdentifier else { return }
+        actionEngine.cancelAll()
+        cursorEngine.releaseTransientState()
+        frontmostApplicationBundleIdentifier = bundleIdentifier
+    }
+
     private func handleControllerSnapshot(_ snapshot: ControllerSnapshot) {
         let didChange = snapshot.lastUpdated != controllerSnapshot.lastUpdated
         if didChange && snapshot.isConnected {
@@ -982,7 +1379,11 @@ final class AppModel: ObservableObject {
 
     private func handleControllerActions(_ snapshot: ControllerSnapshot) {
         if snapshot.isConnected {
-            actionEngine.process(snapshot: snapshot, profile: activeProfile)
+            actionEngine.process(
+                snapshot: snapshot,
+                profile: activeProfile,
+                applicationBundleIdentifier: frontmostApplicationBundleIdentifier
+            )
         } else {
             actionEngine.cancelAll()
             cursorEngine.releaseTransientState()

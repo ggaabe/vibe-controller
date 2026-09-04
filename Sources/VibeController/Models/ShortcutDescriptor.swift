@@ -88,6 +88,10 @@ struct ShortcutDescriptor: Codable, Hashable, Sendable {
         !isModifierOnly || isSupportedModifierChord
     }
 
+    func isAssignable(for triggerMode: TriggerMode) -> Bool {
+        isAssignable || (isModifierOnly && triggerMode == .holdWhilePressed)
+    }
+
     var displayString: String {
         if isSupportedModifierChord,
            let modifier = Self.rightSideModifierByKeyCode[keyCode] {
@@ -195,6 +199,15 @@ struct ShortcutDescriptor: Codable, Hashable, Sendable {
         49: "Space",
         51: "⌫",
         53: "⎋",
+        54: "R⌘",
+        55: "L⌘",
+        56: "L⇧",
+        57: "Caps Lock",
+        58: "L⌥",
+        59: "L^",
+        60: "R⇧",
+        61: "R⌥",
+        62: "R^",
         63: "fn",
         71: "⌧",
         76: "⌤",
