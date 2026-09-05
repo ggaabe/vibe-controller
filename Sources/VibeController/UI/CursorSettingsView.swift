@@ -5,20 +5,19 @@ struct CursorSettingsView: View {
     @State private var advancedExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 20) {
             ProductSectionTitle(
                 "Cursor",
-                subtitle: "Tune everyday and precision movement.",
                 symbol: "cursorarrow.motionlines"
             )
 
             VStack(spacing: 12) {
-                Picker("Primary cursor stick", selection: appModel.primaryStickBinding()) {
+                Picker("Primary stick", selection: appModel.primaryStickBinding()) {
                     ForEach(StickAssignment.allCases) { assignment in
                         Text(assignment.displayName).tag(assignment)
                     }
                 }
-                Picker("Precision cursor stick", selection: appModel.precisionStickBinding()) {
+                Picker("Precision stick", selection: appModel.precisionStickBinding()) {
                     ForEach(StickAssignment.allCases) { assignment in
                         Text(assignment.displayName).tag(assignment)
                     }
@@ -33,32 +32,6 @@ struct CursorSettingsView: View {
                 formatter: { "\(Int($0.rounded())) px/s" }
             )
 
-            Toggle(isOn: appModel.cursorBinding(\.zoomGestureEnabled)) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("A / × + left stick zoom")
-                    Text("Hold the bottom face button, then move the left stick up or down. A quick tap still clicks.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .toggleStyle(.switch)
-            .frame(minHeight: 40)
-            .accessibilityHint("Uses the left stick to zoom while the bottom face button is held.")
-
-            Toggle(isOn: appModel.cursorBinding(\.flickBoostEnabled)) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Flick boost")
-                    Text("Adds speed after a very fast full-stick flick.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .toggleStyle(.switch)
-            .frame(minHeight: 40)
-            .accessibilityHint("Temporarily increases primary cursor speed after a very fast full-stick sweep.")
-
             SliderSettingRow(
                 title: "Precision speed",
                 value: appModel.cursorBinding(\.precisionSpeed),
@@ -70,10 +43,26 @@ struct CursorSettingsView: View {
                 title: "Dead zone",
                 value: appModel.cursorBinding(\.deadZone),
                 range: 0.02...0.35,
-                formatter: { String(format: "%.2f", $0) }
+                formatter: { String(format: "%.0f%%", $0 * 100) }
             )
 
-            DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
+            Divider()
+
+            Toggle(isOn: appModel.cursorBinding(\.flickBoostEnabled)) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Flick boost").font(.subheadline.weight(.medium))
+                    Text("Move faster after a full-stick flick")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .frame(minHeight: 40)
+            .accessibilityLabel("Flick boost")
+            .accessibilityHint("Temporarily increases primary cursor speed after a very fast full-stick sweep.")
+
+            DisclosureGroup("Fine tuning", isExpanded: $advancedExpanded) {
                 VStack(spacing: 14) {
                     SliderSettingRow(
                         title: "Smoothing",
@@ -113,7 +102,6 @@ struct CursorSettingsView: View {
                 .padding(.top, 10)
             }
         }
-        .productPanel()
         .accessibilityIdentifier("settings.cursor")
     }
 }
@@ -127,12 +115,12 @@ struct SliderSettingRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(title)
+                Text(title).font(.subheadline)
                 Spacer()
                 Text(formatter(value))
                     .foregroundStyle(.secondary)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .monospacedDigit()
-                    .contentTransition(.numericText())
             }
             Slider(value: $value, in: range)
         }

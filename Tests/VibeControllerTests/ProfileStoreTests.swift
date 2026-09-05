@@ -34,6 +34,7 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(document.profiles.first?.mappings[.options]?.shortcut?.displayString, "⌘C")
         XCTAssertEqual(document.profiles.first?.mappings[.home]?.shortcut?.displayString, "⌘W")
         XCTAssertEqual(document.profiles.first?.cursor.flickBoostEnabled, false)
+        XCTAssertEqual(document.profiles.first?.cursor.zoomGestureEnabled, false)
         XCTAssertEqual(
             document.profiles.first?.modifierLayer(for: .leftShoulder)?.mappings[.dpadLeft]?.actionType,
             .crossEdgeLeft
@@ -165,7 +166,7 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertFalse(decoded.flickBoostEnabled)
     }
 
-    func testLegacyCursorConfigurationEnablesZoomGesture() throws {
+    func testLegacyCursorConfigurationDefaultsZoomGestureOff() throws {
         let encoder = JSONEncoder()
         let data = try encoder.encode(ControllerProfile.gabesDefaults.cursor)
         var object = try XCTUnwrap(
@@ -176,7 +177,7 @@ final class ProfileStoreTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(CursorConfiguration.self, from: legacyData)
 
-        XCTAssertTrue(decoded.zoomGestureEnabled)
+        XCTAssertFalse(decoded.zoomGestureEnabled)
     }
 
     func testCursorConfigurationPersistsDisabledZoomGesture() throws {
@@ -187,6 +188,16 @@ final class ProfileStoreTests: XCTestCase {
         let decoded = try JSONDecoder().decode(CursorConfiguration.self, from: data)
 
         XCTAssertFalse(decoded.zoomGestureEnabled)
+    }
+
+    func testExplicitZoomGestureSettingSurvivesProfileRoundTrip() throws {
+        var configuration = ControllerProfile.gabesDefaults.cursor
+        configuration.zoomGestureEnabled = true
+
+        let data = try JSONEncoder().encode(configuration)
+        let decoded = try JSONDecoder().decode(CursorConfiguration.self, from: data)
+
+        XCTAssertTrue(decoded.zoomGestureEnabled)
     }
 
     func testLegacyProfileDefaultsToNoModifierLayers() throws {

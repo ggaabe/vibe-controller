@@ -9,12 +9,25 @@ struct MappingSheetView: View {
     let scope: ControllerMappingScope
 
     @State private var mapping = ControllerActionMapping()
+    @State private var systemKeysExpanded = false
     @State private var isCapturingShortcut = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(title)
-                .font(.title2.weight(.semibold))
+            HStack(spacing: 14) {
+                Image(systemName: control.sfSymbolName)
+                    .font(.system(size: 25, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 52, height: 52)
+                    .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("BUTTON MAPPING")
+                        .font(.system(size: 10, weight: .semibold)).tracking(1.2)
+                        .foregroundStyle(.secondary)
+                    Text(title).font(.system(size: 21, weight: .semibold))
+                }
+                Spacer()
+            }
             if scope.applicationBundleIdentifier != nil {
                 HStack(spacing: 8) {
                     Label(
@@ -37,7 +50,8 @@ struct MappingSheetView: View {
                     )
                     .font(.subheadline.weight(.medium))
                     if scope.applicationBundleIdentifier == nil,
-                       !appModel.hasMappingOverride(for: control, in: layer, scope: scope) {
+                        !appModel.hasMappingOverride(for: control, in: layer, scope: scope)
+                    {
                         Text("Uses Default until you save an override")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -78,61 +92,72 @@ struct MappingSheetView: View {
                             shortcut: $mapping.shortcut,
                             isCapturing: $isCapturingShortcut
                         )
-                        Text("Click the field and press a shortcut. Left/right pairs of Command, Option, Shift, and Control can be recorded together. You can also use a quick set button for a system-owned key.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Text("Function keys")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        LazyVGrid(
-                            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6),
-                            spacing: 8
-                        ) {
-                            ForEach(1...12, id: \.self) { number in
-                                Button("F\(number)") {
-                                    guard let keyCode = ShortcutDescriptor.functionKeyCodes[number] else { return }
-                                    mapping.shortcut = ShortcutDescriptor(keyCode: keyCode, modifiers: [])
-                                    isCapturingShortcut = false
+                        Text(
+                            "Click to record a shortcut, or choose a system key below. Left and right modifier pairs are supported."
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        DisclosureGroup("System & function keys", isExpanded: $systemKeysExpanded) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Function keys")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                LazyVGrid(
+                                    columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6),
+                                    spacing: 8
+                                ) {
+                                    ForEach(1...12, id: \.self) { number in
+                                        Button("F\(number)") {
+                                            guard let keyCode = ShortcutDescriptor.functionKeyCodes[number] else {
+                                                return
+                                            }
+                                            mapping.shortcut = ShortcutDescriptor(keyCode: keyCode, modifiers: [])
+                                            isCapturingShortcut = false
+                                        }
+                                    }
+                                }
+                                LazyVGrid(
+                                    columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
+                                    spacing: 8
+                                ) {
+                                    Button("Return") {
+                                        mapping.shortcut = ShortcutDescriptor(keyCode: 36, modifiers: [])
+                                    }
+                                    Button("Escape") {
+                                        mapping.shortcut = ShortcutDescriptor(keyCode: 53, modifiers: [])
+                                    }
+                                    Button("fn") {
+                                        mapping.shortcut = ShortcutDescriptor(keyCode: 63, modifiers: [])
+                                    }
+                                    Button("Right Option") {
+                                        mapping.shortcut = ShortcutDescriptor(keyCode: 61, modifiers: [])
+                                        mapping.triggerMode = .holdWhilePressed
+                                        isCapturingShortcut = false
+                                    }
+                                    Button("Delete") {
+                                        mapping.shortcut = ShortcutDescriptor(keyCode: 51, modifiers: [])
+                                    }
+                                    Button("⌘⇧2") {
+                                        mapping.shortcut = ShortcutDescriptor(
+                                            keyCode: 19, modifiers: [.command, .shift])
+                                    }
+                                    Button("L⌘ + R⌘") {
+                                        mapping.shortcut = .leftRightModifierChord(.command)
+                                        isCapturingShortcut = false
+                                    }
+                                    Button("⌘⌃⇧4") {
+                                        mapping.shortcut = ShortcutDescriptor(
+                                            keyCode: 21, modifiers: [.command, .control, .shift])
+                                    }
+                                    Button("Forward Delete") {
+                                        mapping.shortcut = ShortcutDescriptor(keyCode: 117, modifiers: [])
+                                    }
+                                    Button("Clear Shortcut") {
+                                        mapping.shortcut = nil
+                                    }
                                 }
                             }
-                        }
-                        LazyVGrid(
-                            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
-                            spacing: 8
-                        ) {
-                            Button("Return") {
-                                mapping.shortcut = ShortcutDescriptor(keyCode: 36, modifiers: [])
-                            }
-                            Button("Escape") {
-                                mapping.shortcut = ShortcutDescriptor(keyCode: 53, modifiers: [])
-                            }
-                            Button("fn") {
-                                mapping.shortcut = ShortcutDescriptor(keyCode: 63, modifiers: [])
-                            }
-                            Button("Right Option") {
-                                mapping.shortcut = ShortcutDescriptor(keyCode: 61, modifiers: [])
-                                mapping.triggerMode = .holdWhilePressed
-                                isCapturingShortcut = false
-                            }
-                            Button("Delete") {
-                                mapping.shortcut = ShortcutDescriptor(keyCode: 51, modifiers: [])
-                            }
-                            Button("⌘⇧2") {
-                                mapping.shortcut = ShortcutDescriptor(keyCode: 19, modifiers: [.command, .shift])
-                            }
-                            Button("L⌘ + R⌘") {
-                                mapping.shortcut = .leftRightModifierChord(.command)
-                                isCapturingShortcut = false
-                            }
-                            Button("⌘⌃⇧4") {
-                                mapping.shortcut = ShortcutDescriptor(keyCode: 21, modifiers: [.command, .control, .shift])
-                            }
-                            Button("Forward Delete") {
-                                mapping.shortcut = ShortcutDescriptor(keyCode: 117, modifiers: [])
-                            }
-                            Button("Clear Shortcut") {
-                                mapping.shortcut = nil
-                            }
+                            .padding(.top, 10)
                         }
                         if let validationError {
                             Text(validationError)
@@ -199,7 +224,7 @@ struct MappingSheetView: View {
             .controlSize(.large)
         }
         .padding(24)
-        .frame(width: 560)
+        .frame(width: 600, height: 660)
         .onAppear {
             mapping = appModel.mapping(for: control, in: layer, scope: scope)
         }

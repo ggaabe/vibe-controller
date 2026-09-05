@@ -155,6 +155,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$STAGED_APP/Contents/MacOS" "$STAGED_APP/Contents/Resources"
+ditto "$ROOT_DIR/Sources/VibeController/Resources/Controllers" "$STAGED_APP/Contents/Resources/Controllers"
 install -m 755 "$EXECUTABLE" "$STAGED_APP/Contents/MacOS/VibeController"
 install -m 644 \
   "$SUPPORT_INSTALLER" \

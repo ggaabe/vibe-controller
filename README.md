@@ -63,6 +63,17 @@ The app requests each missing step only once per launch so it does not trap user
 
 Profiles are saved locally at `~/Library/Application Support/Vibe Controller/profiles.json`. Open **Manage Profile** in the footer, then use **Import Profile** or **Export Profile** to move an individual profile between Macs.
 
+### Customize your controller
+
+The controller workspace uses original, resolution-independent Xbox and PlayStation SVG artwork with visible bumpers and triggers. The layout follows your connected controller; use the **Xbox / PlayStation** menu above the illustration to preview either design without changing your profile.
+
+- Action labels appear around the controller by default, with lines connecting them to each button. Click a label or physical button to remap it. **Show labels** remembers your preference; when labels are hidden, hover over a button to inspect its action below the map. Click the stick itself for **L3 / R3**; use the **Left Stick / Right Stick** controls below the artwork to change its cursor role.
+- Live input moves the thumbstick caps, fills and depresses triggers in proportion to their pull, and lights up pressed buttons. Short taps remain visible briefly without extending their mapped action. Feedback works with labels on or off; display interpolation does not affect the real-time cursor or HID loop.
+- Choose **Bindings** to search all buttons and assigned actions in a readable list.
+- Use **App** to edit system-wide settings or an app-specific override. Apps without an override inherit **All Apps**.
+- Select a modifier layer or hold its controller button to update the visible action labels and highlight its overrides. In the artwork-only view, modifier shortcuts appear as chips below the map.
+- Cursor speed, precision, dead zone and flick boost live in the preferences sidebar. Diagnostics and advanced connection options stay collapsed until needed.
+
 ## Universal Control between Macs
 
 Vibe Controller sends relative motion, mouse buttons, scrolling, and keyboard shortcuts through a DriverKit virtual mouse and keyboard. macOS recognizes them as hardware devices, so Universal Control keeps forwarding their reports after the pointer crosses onto another Mac. Cursor-warp and synthetic-event APIs can reach Universal Control's edge, but macOS stops routing those events after handoff; the virtual devices are what make continued motion possible.
@@ -107,7 +118,7 @@ PlayStation controllers use the same physical-position mappings: Cross/Circle/Sq
 | LB | Escape / modifier | Tap for `Esc`; hold with a D-pad direction to cross the matching Universal Control edge |
 | RT | Voice dictation | Holds the `Fn` key; configure macOS Dictation to use the Fn shortcut if needed |
 | RB | Right click | Standard secondary click |
-| A / Cross | Left click / zoom gesture | Tap for a standard primary click; hold and move the left stick up or down to zoom |
+| A / Cross | Left click | Standard primary click; left-stick movement stays available while held |
 | B | Area screenshot to clipboard | Sends `⌃⇧⌘4`; drag over an area, then paste the screenshot |
 | X | TextSniper OCR capture | Sends `⇧⌘2`; drag over text to OCR it into the clipboard |
 | Y | Paste | Sends `⌘V` |
@@ -119,7 +130,9 @@ PlayStation controllers use the same physical-position mappings: Cross/Circle/Sq
 | Menu | New tab | Sends `⌘T` |
 | Home | Close tab or window | Sends `⌘W`; disable any competing Home-button action in macOS Game Controller settings |
 
-The cursor profile enables acceleration with a `0.12` dead zone, `1.8` response curve, `0.5` smoothing, neutral axis multipliers, and flick boost disabled. The A / Cross zoom gesture is enabled by default: vertical stick tilt controls the repeat rate, diagonal vertical movement is accepted, and ordinary left-stick cursor movement pauses until the gesture ends. It sends standard app zoom shortcuts through the same virtual keyboard used by Universal Control, so it also works in compatible apps on the other Mac.
+Holding a scroll control sends one step immediately, waits the configured repeat delay (350 ms by default), then continues at the configured interval (80 ms by default). Native scrolling runs on its own input queue, including through Universal Control, and temporarily prevents App Nap while held. Releasing the button or disconnecting the controller stops the repeat without waiting for the UI. Your repeat timings and mappings are preserved.
+
+The cursor profile enables acceleration with a `0.12` dead zone, `1.8` response curve, `0.5` smoothing, neutral axis multipliers, and flick boost disabled. The experimental A / Cross + left-stick zoom gesture is disabled by default, and its toggle is hidden for now. Explicit values in existing imported profiles are preserved.
 
 ### Recommended OCR companion
 

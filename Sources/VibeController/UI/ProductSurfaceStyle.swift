@@ -1,18 +1,24 @@
 import SwiftUI
 
 enum ProductSurfaceStyle {
-    static let cornerRadius: CGFloat = 20
+    static let cornerRadius: CGFloat = 14
+
+    static func canvas(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color(red: 0.14, green: 0.155, blue: 0.18)
+            : Color(red: 0.925, green: 0.936, blue: 0.952)
+    }
 
     static func fill(for colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
-            ? Color.white.opacity(0.055)
-            : Color.white.opacity(0.72)
+            ? Color.white.opacity(0.035)
+            : Color.white.opacity(0.65)
     }
 
     static func border(for colorScheme: ColorScheme) -> Color {
         colorScheme == .dark
-            ? Color.white.opacity(0.075)
-            : Color.black.opacity(0.075)
+            ? Color.white.opacity(0.07)
+            : Color.black.opacity(0.06)
     }
 }
 
@@ -53,16 +59,15 @@ struct ProductSectionTitle: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 9) {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 28, height: 28)
-                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 19)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.headline.weight(.semibold))
+                    .font(.system(size: 14, weight: .semibold))
                 if let subtitle {
                     Text(subtitle)
                         .font(.caption)
@@ -96,7 +101,6 @@ struct ReadinessRow: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(12)
-        .background(Color.secondary.opacity(0.075), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.vertical, 6)
     }
 }

@@ -16,7 +16,8 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "VibeController"
+            name: "VibeController",
+            resources: [.copy("Resources/Controllers")]
         ),
         .executableTarget(
             name: "ControllerProbe"

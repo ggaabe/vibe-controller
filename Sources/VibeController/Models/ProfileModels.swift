@@ -352,7 +352,7 @@ struct CursorConfiguration: Hashable, Sendable {
         horizontalSpeedMultiplier: Double,
         verticalSpeedMultiplier: Double,
         flickBoostEnabled: Bool = true,
-        zoomGestureEnabled: Bool = true
+        zoomGestureEnabled: Bool = false
     ) {
         self.primaryStick = primaryStick
         self.precisionStick = precisionStick
@@ -410,7 +410,7 @@ extension CursorConfiguration: Codable {
         horizontalSpeedMultiplier = try container.decode(Double.self, forKey: .horizontalSpeedMultiplier)
         verticalSpeedMultiplier = try container.decode(Double.self, forKey: .verticalSpeedMultiplier)
         flickBoostEnabled = try container.decodeIfPresent(Bool.self, forKey: .flickBoostEnabled) ?? true
-        zoomGestureEnabled = try container.decodeIfPresent(Bool.self, forKey: .zoomGestureEnabled) ?? true
+        zoomGestureEnabled = try container.decodeIfPresent(Bool.self, forKey: .zoomGestureEnabled) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -606,7 +606,7 @@ extension ControllerProfile {
             horizontalSpeedMultiplier: 1.0,
             verticalSpeedMultiplier: 1.0,
             flickBoostEnabled: false,
-            zoomGestureEnabled: true
+            zoomGestureEnabled: false
         ),
         mappings: [
             .leftTrigger: ControllerActionMapping(actionType: .leftMouseHold, triggerMode: .holdWhilePressed),
