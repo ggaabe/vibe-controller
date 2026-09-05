@@ -244,8 +244,9 @@ final class AppModel: ObservableObject {
         controllerManager.onActionSnapshot = { [weak self] snapshot in
             self?.handleControllerActions(snapshot)
         }
-        controllerManager.onRealtimeSnapshot = { [weak cursorEngine] snapshot in
+        controllerManager.onRealtimeSnapshot = { [weak cursorEngine, weak actionEngine] snapshot in
             cursorEngine?.updateInput(snapshot: snapshot)
+            actionEngine?.updateRealtimeInput(snapshot: snapshot)
         }
         companionManager.onMessage = { [weak self] message in
             self?.handleCompanionMessage(message)
@@ -1410,6 +1411,7 @@ final class AppModel: ObservableObject {
     }
 
     private func syncMovementInterceptor() {
+        actionEngine.allowsBackgroundScrollRepeats = companionMode != .controller
         guard companionMode == .controller,
               case .connected = companionConnectionState else {
             cursorEngine.movementInterceptor = nil

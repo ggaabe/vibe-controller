@@ -22,15 +22,30 @@ final class ActionEngine {
     /// a single physical tap without making normal double-taps feel sluggish.
     private static let duplicateTapInterval: TimeInterval = 0.08
 
-    var isEnabled = true
-    var accessibilityTrusted = false
-    var suspendActionExecution = false
+    var isEnabled = true {
+        didSet { if !isEnabled { cancelAll() } }
+    }
+    var accessibilityTrusted = false {
+        didSet { if !accessibilityTrusted { cancelAll() } }
+    }
+    var suspendActionExecution = false {
+        didSet { if suspendActionExecution { cancelAll() } }
+    }
+    // Companion mode chooses local/remote routing on the main actor. Native
+    // Universal Control does not need that routing and can write HID directly.
+    var allowsBackgroundScrollRepeats = true {
+        didSet {
+            if allowsBackgroundScrollRepeats != oldValue { heldScrollRepeater.stopAll() }
+        }
+    }
     var onToggleCursorSpeeds: (() -> Void)?
     var onCrossEdgeSweep: ((CrossEdgeDirection) -> Void)?
     var onActionStatus: ((String) -> Void)?
     var companionDispatch: ((CompanionControlEvent) -> Bool)?
 
     private let cursorEngine: CursorEngine
+    private nonisolated let heldScrollRepeater: HeldScrollRepeater
+    private let scrollOutput: HeldScrollRepeater.Output
     private let currentTime: () -> TimeInterval
     private let eventSource = CGEventSource(stateID: .combinedSessionState)
     private var previousPressedControls = Set<ControllerControlID>()
@@ -42,10 +57,30 @@ final class ActionEngine {
 
     init(
         cursorEngine: CursorEngine,
-        currentTime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+        currentTime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        scrollOutput: HeldScrollRepeater.Output? = nil
     ) {
         self.cursorEngine = cursorEngine
         self.currentTime = currentTime
+        let bridge = cursorEngine.universalControlInputBridge
+        let output: HeldScrollRepeater.Output = scrollOutput ?? { vertical, horizontal in
+            if bridge.postScroll(vertical: vertical, horizontal: horizontal) { return }
+            let event = CGEvent(
+                scrollWheelEvent2Source: nil,
+                units: .line,
+                wheelCount: 2,
+                wheel1: vertical,
+                wheel2: horizontal,
+                wheel3: 0
+            )
+            event?.post(tap: .cghidEventTap)
+        }
+        self.scrollOutput = output
+        self.heldScrollRepeater = HeldScrollRepeater(output: output)
+    }
+
+    nonisolated func updateRealtimeInput(snapshot: ControllerSnapshot) {
+        heldScrollRepeater.updateInput(snapshot)
     }
 
     func process(
@@ -138,6 +173,7 @@ final class ActionEngine {
     }
 
     func cancelAll() {
+        heldScrollRepeater.stopAll()
         for control in Array(activeStates.keys) {
             finishActiveState(for: control)
         }
@@ -361,6 +397,7 @@ final class ActionEngine {
     }
 
     private func finishActiveState(for control: ControllerControlID) {
+        heldScrollRepeater.stop(control)
         guard let state = activeStates[control] else { return }
         state.timer?.cancel()
         if state.isHoldingShortcut, let shortcut = state.shortcut {
@@ -382,6 +419,33 @@ final class ActionEngine {
         sourceModifier: ControllerControlID?
     ) {
         activeStates[control]?.timer?.cancel()
+        heldScrollRepeater.stop(control)
+        var firedInitialScroll = false
+        if let delta = mapping.actionType.scrollDelta, allowsBackgroundScrollRepeats {
+            firedInitialScroll = true
+            let forwarded = dispatchToCompanion(.scroll(vertical: delta.vertical, horizontal: delta.horizontal))
+            if !forwarded {
+                postScroll(vertical: delta.vertical, horizontal: delta.horizontal)
+                activeStates[control] = ActiveControlState(
+                    triggerMode: mapping.triggerMode,
+                    sourceModifier: sourceModifier,
+                    shortcut: nil,
+                    isHoldingShortcut: false,
+                    isDragging: false,
+                    isToggledOn: false,
+                    timer: nil
+                )
+                heldScrollRepeater.start(
+                    control: control,
+                    modifier: sourceModifier,
+                    vertical: delta.vertical,
+                    horizontal: delta.horizontal,
+                    delay: mapping.repeatDelay,
+                    interval: mapping.repeatInterval
+                )
+                return
+            }
+        }
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(
             deadline: .now() + max(0.01, mapping.repeatDelay),
@@ -398,9 +462,10 @@ final class ActionEngine {
             isHoldingShortcut: false,
             isDragging: false,
             isToggledOn: false,
-            timer: timer
+            timer: timer,
+            repeatActivity: ControllerRepeatActivity()
         )
-        fireDiscreteAction(mapping)
+        if !firedInitialScroll { fireDiscreteAction(mapping) }
     }
 
     private func toggleAction(
@@ -699,24 +764,7 @@ final class ActionEngine {
     }
 
     private func postScroll(vertical: Int32, horizontal: Int32) {
-        if cursorEngine.universalControlInputBridge.postScroll(
-            vertical: vertical,
-            horizontal: horizontal
-        ) {
-            return
-        }
-
-        guard let event = CGEvent(
-            scrollWheelEvent2Source: eventSource,
-            units: .line,
-            wheelCount: 2,
-            wheel1: vertical,
-            wheel2: horizontal,
-            wheel3: 0
-        ) else {
-            return
-        }
-        event.post(tap: CGEventTapLocation.cghidEventTap)
+        scrollOutput(vertical, horizontal)
     }
 
     func performCompanionEvent(_ event: CompanionControlEvent) {
@@ -902,6 +950,19 @@ private struct ActiveControlState {
     var isDragging: Bool
     var isToggledOn: Bool
     var timer: DispatchSourceTimer?
+    var repeatActivity: ControllerRepeatActivity? = nil
+}
+
+private extension ActionType {
+    var scrollDelta: (vertical: Int32, horizontal: Int32)? {
+        switch self {
+        case .scrollUp: return (-1, 0)
+        case .scrollDown: return (1, 0)
+        case .scrollLeft: return (0, -1)
+        case .scrollRight: return (0, 1)
+        default: return nil
+        }
+    }
 }
 
 private extension KeyboardModifier {
