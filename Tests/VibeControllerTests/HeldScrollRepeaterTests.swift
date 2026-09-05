@@ -21,7 +21,7 @@ final class HeldScrollRepeaterTests: XCTestCase {
 
             let samples = recorder.samples
             XCTAssertGreaterThanOrEqual(samples.count, 6, "\(action) stalled behind the UI")
-            XCTAssertLessThanOrEqual(samples.count, 10, "Repeated faster than configured")
+            assertCadence(samples, delay: 0.05, interval: 0.04)
             XCTAssertTrue(samples.allSatisfy { $0.vertical == vertical && $0.horizontal == horizontal })
         }
     }
@@ -31,19 +31,13 @@ final class HeldScrollRepeaterTests: XCTestCase {
         let engine = makeEngine(recorder)
         let profile = profile(action: .scrollDown, delay: 0.25, interval: 0.04)
         engine.process(snapshot: snapshot([.dpadUp]), profile: profile)
-        XCTAssertEqual(recorder.samples.count, 1)
-        Thread.sleep(forTimeInterval: 0.15)
-        XCTAssertEqual(recorder.samples.count, 1, "Tap must not prematurely become a hold")
-        Thread.sleep(forTimeInterval: 0.4)
+        XCTAssertFalse(recorder.samples.isEmpty, "The tap must fire synchronously")
+        Thread.sleep(forTimeInterval: 0.55)
         engine.process(snapshot: snapshot([]), profile: profile)
 
         let samples = recorder.samples
         XCTAssertGreaterThanOrEqual(samples.count, 6)
-        if samples.count > 1 {
-            XCTAssertGreaterThanOrEqual(samples[1].time - samples[0].time, 0.23)
-            let repeatGaps = zip(samples.dropFirst(), samples.dropFirst(2)).map { $1.time - $0.time }
-            XCTAssertTrue(repeatGaps.allSatisfy { $0 < 0.15 }, "Expected continuous repeats, not one-second pulses")
-        }
+        assertCadence(samples, delay: 0.25, interval: 0.04)
         Thread.sleep(forTimeInterval: 0.12)
         XCTAssertEqual(recorder.samples.count, samples.count, "Release must stop scrolling")
     }
@@ -57,8 +51,9 @@ final class HeldScrollRepeaterTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.02)
         }
         engine.cancelAll()
-        XCTAssertGreaterThanOrEqual(recorder.samples.count, 5)
-        XCTAssertLessThan(recorder.samples.count, 12)
+        let samples = recorder.samples
+        XCTAssertGreaterThanOrEqual(samples.count, 5)
+        assertCadence(samples, delay: 0.05, interval: 0.04)
     }
 
     func testRealtimeReleaseAndDisconnectStopScrollingWithoutWaitingForTheUI() {
@@ -159,6 +154,23 @@ final class HeldScrollRepeaterTests: XCTestCase {
         let engine = ActionEngine(cursorEngine: CursorEngine(), scrollOutput: { recorder.record($0, $1) })
         engine.accessibilityTrusted = true
         return engine
+    }
+
+    private func assertCadence(
+        _ samples: [ScrollRecorder.Sample], delay: TimeInterval, interval: TimeInterval,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        guard let first = samples.first, let last = samples.last, samples.count > 1 else {
+            return XCTFail("Expected sustained repeats", file: file, line: line)
+        }
+        // sleep() is only a minimum pause. Shared CI runners may resume this
+        // test much later while the input queue correctly continues repeating.
+        // Judge rate and initial delay using event timestamps, not requested
+        // sleep duration; this still detects double-firing or delay resets.
+        XCTAssertGreaterThanOrEqual(samples[1].time - first.time, delay - 0.01, file: file, line: line)
+        let elapsed = max(0, last.time - first.time - delay)
+        let maximumCount = 2 + Int(ceil(elapsed / interval))
+        XCTAssertLessThanOrEqual(samples.count, maximumCount, "Repeated faster than configured", file: file, line: line)
     }
 
     private func profile(action: ActionType, delay: Double = 0.02, interval: Double = 0.02) -> ControllerProfile {
