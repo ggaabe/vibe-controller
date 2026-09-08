@@ -33,6 +33,15 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(document.profiles.first?.mappings[.menu]?.shortcut?.displayString, "⌘T")
         XCTAssertEqual(document.profiles.first?.mappings[.options]?.shortcut?.displayString, "⌘C")
         XCTAssertEqual(document.profiles.first?.mappings[.home]?.shortcut?.displayString, "⌘W")
+        XCTAssertEqual(document.profiles.first?.mappings[.buttonNorth]?.shortcut?.displayString, "⌘V")
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .rightShoulder)?.mappings[.buttonNorth],
+            ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 9, modifiers: [.control]),
+                triggerMode: .tap
+            )
+        )
         XCTAssertEqual(document.profiles.first?.cursor.flickBoostEnabled, false)
         XCTAssertEqual(document.profiles.first?.cursor.zoomGestureEnabled, false)
         XCTAssertEqual(
@@ -108,6 +117,27 @@ final class ProfileStoreTests: XCTestCase {
             "⌥⇧⌘F"
         )
         XCTAssertEqual(document.profiles.first, ControllerProfile.gabesDefaults)
+    }
+
+    func testAlternatePasteFallsBackAcrossApplicationScopes() {
+        let profile = ControllerProfile.gabesDefaults
+        let applications: [String?] = [nil, "com.apple.Terminal", ApplicationMappingOverrides.codexBundleIdentifier]
+        for application in applications {
+            XCTAssertEqual(
+                profile.effectiveMapping(
+                    for: .buttonNorth, modifierControl: nil,
+                    applicationBundleIdentifier: application
+                ).shortcut,
+                ShortcutDescriptor(keyCode: 9, modifiers: [.command])
+            )
+            XCTAssertEqual(
+                profile.effectiveMapping(
+                    for: .buttonNorth, modifierControl: .rightShoulder,
+                    applicationBundleIdentifier: application
+                ).shortcut,
+                ShortcutDescriptor(keyCode: 9, modifiers: [.control])
+            )
+        }
     }
 
     func testImportProfileRenamesDuplicateIdentifiers() throws {

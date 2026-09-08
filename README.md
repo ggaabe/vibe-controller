@@ -199,6 +199,7 @@ Gabe's Defaults ships with the current modifier setup already configured:
 | --- | --- |
 | LB + X / Square | Type a period (`.`) |
 | LB + Y / Triangle | Type a Space |
+| RB / R1 + Y / Triangle | Send Control-V (alternate paste / app-specific command) |
 | LB + RB / R1 | Press Left Command + Right Command |
 | LB + D-pad direction | Cross the matching Universal Control edge |
 | RB / R1 + D-pad direction | Cross the matching Universal Control edge |
