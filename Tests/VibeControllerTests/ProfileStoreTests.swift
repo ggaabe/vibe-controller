@@ -31,6 +31,14 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(document.profiles.first?.mappings[.buttonEast]?.shortcut?.displayString, "^⇧⌘4")
         XCTAssertEqual(document.profiles.first?.mappings[.rightTrigger]?.shortcut?.displayString, "fn")
         XCTAssertEqual(document.profiles.first?.mappings[.menu]?.shortcut?.displayString, "⌘T")
+        XCTAssertEqual(
+            document.profiles.first?.modifierLayer(for: .rightShoulder)?.mappings[.menu],
+            ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 48, modifiers: []),
+                triggerMode: .tap
+            )
+        )
         XCTAssertEqual(document.profiles.first?.mappings[.options]?.shortcut?.displayString, "⌘C")
         XCTAssertEqual(document.profiles.first?.mappings[.home]?.shortcut?.displayString, "⌘W")
         XCTAssertEqual(document.profiles.first?.mappings[.buttonNorth]?.shortcut?.displayString, "⌘V")
@@ -138,6 +146,34 @@ final class ProfileStoreTests: XCTestCase {
                 ShortcutDescriptor(keyCode: 9, modifiers: [.control])
             )
         }
+    }
+
+    func testMenuTabModifierPreservesBaseActionAndApplicationOverrides() {
+        let profile = ControllerProfile.gabesDefaults
+        let applications: [String?] = [nil, "com.apple.Terminal"]
+        for application in applications {
+            XCTAssertEqual(
+                profile.effectiveMapping(
+                    for: .menu, modifierControl: nil,
+                    applicationBundleIdentifier: application
+                ).shortcut,
+                ShortcutDescriptor(keyCode: 17, modifiers: [.command])
+            )
+            XCTAssertEqual(
+                profile.effectiveMapping(
+                    for: .menu, modifierControl: .rightShoulder,
+                    applicationBundleIdentifier: application
+                ).shortcut,
+                ShortcutDescriptor(keyCode: 48, modifiers: [])
+            )
+        }
+        XCTAssertEqual(
+            profile.effectiveMapping(
+                for: .menu, modifierControl: .rightShoulder,
+                applicationBundleIdentifier: ApplicationMappingOverrides.codexBundleIdentifier
+            ).shortcut,
+            ShortcutDescriptor(keyCode: 0, modifiers: [.option, .command])
+        )
     }
 
     func testImportProfileRenamesDuplicateIdentifiers() throws {

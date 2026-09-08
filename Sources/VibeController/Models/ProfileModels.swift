@@ -704,6 +704,11 @@ extension ControllerProfile {
                         shortcut: ShortcutDescriptor(keyCode: 9, modifiers: [.control]),
                         triggerMode: .tap
                     ),
+                    .menu: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 48, modifiers: []),
+                        triggerMode: .tap
+                    ),
                     .dpadLeft: ControllerActionMapping(actionType: .crossEdgeLeft),
                     .dpadRight: ControllerActionMapping(actionType: .crossEdgeRight),
                     .dpadUp: ControllerActionMapping(actionType: .crossEdgeUp),

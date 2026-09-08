@@ -200,9 +200,12 @@ Gabe's Defaults ships with the current modifier setup already configured:
 | LB + X / Square | Type a period (`.`) |
 | LB + Y / Triangle | Type a Space |
 | RB / R1 + Y / Triangle | Send Control-V (alternate paste / app-specific command) |
+| RB / R1 + Menu / Options | Press Tab (for CLI queueing or navigation); plain Menu remains Command-T |
 | LB + RB / R1 | Press Left Command + Right Command |
 | LB + D-pad direction | Cross the matching Universal Control edge |
 | RB / R1 + D-pad direction | Cross the matching Universal Control edge |
+
+These are **All Apps** defaults; explicit app-specific mappings still take precedence. For example, the Codex starter keeps RB + Menu assigned to the next chat needing attention. Existing saved profiles are preserved when updating; the new defaults apply to fresh installs or a profile reset.
 
 ## Optional two-Mac companion mode
 
