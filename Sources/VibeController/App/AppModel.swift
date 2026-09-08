@@ -244,6 +244,9 @@ final class AppModel: ObservableObject {
         controllerManager.onActionSnapshot = { [weak self] snapshot in
             self?.handleControllerActions(snapshot)
         }
+        controllerManager.onRealtimeActionSnapshot = { [weak actionEngine] snapshot in
+            actionEngine?.receiveRealtimeActions(snapshot) ?? false
+        }
         controllerManager.onRealtimeSnapshot = { [weak cursorEngine, weak actionEngine] snapshot in
             cursorEngine?.updateInput(snapshot: snapshot)
             actionEngine?.updateRealtimeInput(snapshot: snapshot)
@@ -1367,6 +1370,7 @@ final class AppModel: ObservableObject {
         actionEngine.cancelAll()
         cursorEngine.releaseTransientState()
         frontmostApplicationBundleIdentifier = bundleIdentifier
+        syncActionConfiguration()
     }
 
     private func handleControllerSnapshot(_ snapshot: ControllerSnapshot) {
@@ -1412,6 +1416,7 @@ final class AppModel: ObservableObject {
 
     private func syncMovementInterceptor() {
         actionEngine.allowsBackgroundScrollRepeats = companionMode != .controller
+        syncActionConfiguration()
         guard companionMode == .controller,
               case .connected = companionConnectionState else {
             cursorEngine.movementInterceptor = nil
@@ -1776,7 +1781,7 @@ final class AppModel: ObservableObject {
 
         let nextPhase = virtualHardwareSetupSnapshot.phase
         let phaseChanged = virtualHardwareSetupPhase != nextPhase
-        virtualHardwareSetupPhase = nextPhase
+        if phaseChanged { virtualHardwareSetupPhase = nextPhase }
         if nextPhase != .checking {
             driverStatusWaitStartedAt = nil
         }
@@ -1874,6 +1879,15 @@ final class AppModel: ObservableObject {
         cursorEngine.suspendControllerMotion = false
         actionEngine.suspendActionExecution = false
         cursorEngine.updateConfiguration(activeProfile.cursor)
+        syncActionConfiguration()
+    }
+
+    private func syncActionConfiguration() {
+        actionEngine.configureRealtimeActions(
+            profile: activeProfile,
+            applicationBundleIdentifier: frontmostApplicationBundleIdentifier,
+            enabled: companionMode != .controller
+        )
     }
 
     private func persistDocument() {

@@ -47,6 +47,9 @@ final class ControllerManager: ObservableObject {
 
     var onSnapshot: ((ControllerSnapshot) -> Void)?
     var onActionSnapshot: ((ControllerSnapshot) -> Void)?
+    var onRealtimeActionSnapshot: ControllerInputRelay.RealtimeActionHandler? {
+        didSet { inputRelay.setRealtimeActionHandler(onRealtimeActionSnapshot) }
+    }
     var onRealtimeSnapshot: RealtimeHandler? {
         didSet { inputRelay.setRealtimeHandler(onRealtimeSnapshot) }
     }

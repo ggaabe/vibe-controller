@@ -243,15 +243,11 @@ final class PrivilegedVirtualHIDBridge {
         )
     }
 
-    func postKeyboard(modifiers: UInt8, usage: UInt16) -> Bool {
-        startIfInstalled()
-        guard isKeyboardReady else { return false }
+    nonisolated func postKeyboard(modifiers: UInt8, usage: UInt16) -> Bool {
         return commandTransport.postKeyboard(modifiers: modifiers, usage: usage)
     }
 
-    func postFunction(isDown: Bool) -> Bool {
-        startIfInstalled()
-        guard isKeyboardReady else { return false }
+    nonisolated func postFunction(isDown: Bool) -> Bool {
         // Apple Vendor Top Case usage 0x0003 is the hardware Fn key.
         return commandTransport.postFunction(usage: isDown ? 0x0003 : 0)
     }

@@ -55,12 +55,15 @@ final class PermissionManager: ObservableObject {
     }
 
     private func updateTrust(_ trusted: Bool) {
-        accessibilityTrusted = trusted
+        if accessibilityTrusted != trusted { accessibilityTrusted = trusted }
         if trusted {
-            userDefaults.set(true, forKey: Self.previouslyTrustedKey)
-            accessibilityRepairRecommended = false
-        } else {
-            accessibilityRepairRecommended = userDefaults.bool(forKey: Self.previouslyTrustedKey)
+            if !userDefaults.bool(forKey: Self.previouslyTrustedKey) {
+                userDefaults.set(true, forKey: Self.previouslyTrustedKey)
+            }
+        }
+        let repairRecommended = !trusted && userDefaults.bool(forKey: Self.previouslyTrustedKey)
+        if accessibilityRepairRecommended != repairRecommended {
+            accessibilityRepairRecommended = repairRecommended
         }
     }
 

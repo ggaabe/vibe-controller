@@ -132,6 +132,8 @@ PlayStation controllers use the same physical-position mappings: Cross/Circle/Sq
 
 Holding a scroll control sends one step immediately, waits the configured repeat delay (350 ms by default), then continues at the configured interval (80 ms by default). Native scrolling runs on its own input queue, including through Universal Control, and temporarily prevents App Nap while held. Releasing the button or disconnecting the controller stops the repeat without waiting for the UI. Your repeat timings and mappings are preserved.
 
+Native button actions also run on a dedicated high-priority queue: keyboard shortcuts, dictation trigger presses/releases, clicks, drags, and edge crossings do not wait for the controller-map UI to render. Modifier layers and app-specific overrides use the same mapping resolver. Configuration changes invalidate queued old actions, and disconnecting or disabling input releases held keys. The optional network-companion routing remains separate from native Universal Control.
+
 The cursor profile enables acceleration with a `0.12` dead zone, `1.8` response curve, `0.5` smoothing, neutral axis multipliers, and flick boost disabled. The experimental A / Cross + left-stick zoom gesture is disabled by default, and its toggle is hidden for now. Explicit values in existing imported profiles are preserved.
 
 ### Recommended OCR companion

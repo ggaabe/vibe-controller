@@ -1,8 +1,15 @@
 import CoreGraphics
 import Foundation
 
-@MainActor
-final class ActionEngine {
+/// Action state is protected by `stateLock`. Native input runs on `actionQueue`;
+/// only UI notifications and the optional network-companion router use MainActor.
+final class ActionEngine: @unchecked Sendable {
+    private let stateLock = NSRecursiveLock()
+    private let actionQueue: DispatchQueue
+    private var realtimeProfile: ControllerProfile?
+    private var realtimeApplication: String?
+    private var nativeActionsEnabled = false
+    private var configurationGeneration: UInt64 = 0
     private static let zoomInShortcut = ShortcutDescriptor(
         keyCode: 24,
         modifiers: [.shift, .command]
@@ -22,31 +29,56 @@ final class ActionEngine {
     /// a single physical tap without making normal double-taps feel sluggish.
     private static let duplicateTapInterval: TimeInterval = 0.08
 
-    var isEnabled = true {
-        didSet { if !isEnabled { cancelAll() } }
+    private var enabled = true
+    var isEnabled: Bool {
+        get { stateLock.withLock { enabled } }
+        set { stateLock.withLock {
+            guard enabled != newValue else { return }
+            enabled = newValue
+            configurationGeneration &+= 1
+            if !newValue { cancelAll() }
+        } }
     }
-    var accessibilityTrusted = false {
-        didSet { if !accessibilityTrusted { cancelAll() } }
+    private var trusted = false
+    var accessibilityTrusted: Bool {
+        get { stateLock.withLock { trusted } }
+        set { stateLock.withLock {
+            guard trusted != newValue else { return }
+            trusted = newValue
+            configurationGeneration &+= 1
+            if !newValue { cancelAll() }
+        } }
     }
-    var suspendActionExecution = false {
-        didSet { if suspendActionExecution { cancelAll() } }
+    private var suspended = false
+    var suspendActionExecution: Bool {
+        get { stateLock.withLock { suspended } }
+        set { stateLock.withLock {
+            guard suspended != newValue else { return }
+            suspended = newValue
+            configurationGeneration &+= 1
+            if newValue { cancelAll() }
+        } }
     }
     // Companion mode chooses local/remote routing on the main actor. Native
     // Universal Control does not need that routing and can write HID directly.
-    var allowsBackgroundScrollRepeats = true {
-        didSet {
-            if allowsBackgroundScrollRepeats != oldValue { heldScrollRepeater.stopAll() }
-        }
+    private var backgroundScrollRepeats = true
+    var allowsBackgroundScrollRepeats: Bool {
+        get { stateLock.withLock { backgroundScrollRepeats } }
+        set { stateLock.withLock {
+            if backgroundScrollRepeats != newValue { heldScrollRepeater.stopAll() }
+            backgroundScrollRepeats = newValue
+        } }
     }
-    var onToggleCursorSpeeds: (() -> Void)?
-    var onCrossEdgeSweep: ((CrossEdgeDirection) -> Void)?
-    var onActionStatus: ((String) -> Void)?
-    var companionDispatch: ((CompanionControlEvent) -> Bool)?
+    @MainActor var onToggleCursorSpeeds: (() -> Void)?
+    @MainActor var onCrossEdgeSweep: ((CrossEdgeDirection) -> Void)?
+    @MainActor var onActionStatus: ((String) -> Void)?
+    @MainActor var companionDispatch: ((CompanionControlEvent) -> Bool)?
 
     private let cursorEngine: CursorEngine
     private nonisolated let heldScrollRepeater: HeldScrollRepeater
     private let scrollOutput: HeldScrollRepeater.Output
     private let currentTime: () -> TimeInterval
+    private let shortcutOutput: (@Sendable (ShortcutDescriptor, Bool) -> Void)?
     private let eventSource = CGEventSource(stateID: .combinedSessionState)
     private var previousPressedControls = Set<ControllerControlID>()
     private var activeStates: [ControllerControlID: ActiveControlState] = [:]
@@ -55,13 +87,21 @@ final class ActionEngine {
     private var modifierPressOrder: [ControllerControlID] = []
     private var recentTaps: [ControllerControlID: RecentTap] = [:]
 
-    init(
+    @MainActor init(
         cursorEngine: CursorEngine,
         currentTime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-        scrollOutput: HeldScrollRepeater.Output? = nil
+        scrollOutput: HeldScrollRepeater.Output? = nil,
+        shortcutOutput: (@Sendable (ShortcutDescriptor, Bool) -> Void)? = nil,
+        actionQueue: DispatchQueue? = nil
     ) {
         self.cursorEngine = cursorEngine
         self.currentTime = currentTime
+        self.shortcutOutput = shortcutOutput
+        self.actionQueue = actionQueue ?? DispatchQueue(
+            label: "com.vibe-controller.controller-actions",
+            qos: .userInteractive,
+            autoreleaseFrequency: .workItem
+        )
         let bridge = cursorEngine.universalControlInputBridge
         let output: HeldScrollRepeater.Output = scrollOutput ?? { vertical, horizontal in
             if bridge.postScroll(vertical: vertical, horizontal: horizontal) { return }
@@ -83,11 +123,71 @@ final class ActionEngine {
         heldScrollRepeater.updateInput(snapshot)
     }
 
+    func configureRealtimeActions(
+        profile: ControllerProfile,
+        applicationBundleIdentifier: String?,
+        enabled: Bool
+    ) {
+        stateLock.withLock {
+            guard realtimeProfile != profile || realtimeApplication != applicationBundleIdentifier ||
+                    nativeActionsEnabled != enabled else { return }
+            cancelAll()
+            realtimeProfile = profile
+            realtimeApplication = applicationBundleIdentifier
+            nativeActionsEnabled = enabled
+        }
+    }
+
+    /// Returns true when the native action queue owns this edge. Returning false
+    /// leaves legacy companion routing on MainActor, without double execution.
+    func receiveRealtimeActions(_ snapshot: ControllerSnapshot) -> Bool {
+        stateLock.withLock {
+            guard nativeActionsEnabled, let profile = realtimeProfile else { return false }
+            let generation = configurationGeneration
+            let application = realtimeApplication
+            actionQueue.async { [weak self] in
+                guard let self else { return }
+                self.stateLock.withLock {
+                    guard generation == self.configurationGeneration, self.nativeActionsEnabled else { return }
+                    if snapshot.isConnected {
+                        self.process(snapshot: snapshot, profile: profile, applicationBundleIdentifier: application)
+                    } else {
+                        self.resetActionState()
+                        self.cursorEngine.releaseTransientState()
+                    }
+                }
+            }
+            return true
+        }
+    }
+
+    private func notifyMain(_ operation: @escaping @MainActor @Sendable () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { operation() }
+        } else {
+            DispatchQueue.main.async { MainActor.assumeIsolated { operation() } }
+        }
+    }
+
+    private func reportStatus(_ message: String) {
+        notifyMain { [weak self] in self?.onActionStatus?(message) }
+    }
+
+    private func crossEdge(_ direction: CrossEdgeDirection) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { onCrossEdgeSweep?(direction) }
+        } else {
+            reportStatus(cursorEngine.performCrossEdgeSweep(direction))
+        }
+    }
+
     func process(
         snapshot: ControllerSnapshot,
         profile: ControllerProfile,
         applicationBundleIdentifier: String? = nil
     ) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
         let actuatedControls = Set(
             ControllerControlID.mappingControls.filter { isControlActuated($0, snapshot: snapshot) }
         )
@@ -145,7 +245,7 @@ final class ActionEngine {
            actuatedControls.contains(.buttonSouth),
            let direction = CursorMath.zoomGestureSample(stick: snapshot.leftStick)?.direction {
             consumedModifierControls.insert(.buttonSouth)
-            onActionStatus?("A + Left Stick: \(direction.displayName)")
+            reportStatus("A + Left Stick: \(direction.displayName)")
         }
 
         for control in ControllerControlID.mappingControls
@@ -162,6 +262,8 @@ final class ActionEngine {
     }
 
     func performZoomStep(_ direction: StickZoomDirection) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
         guard isEnabled, accessibilityTrusted, !suspendActionExecution else { return }
         let shortcut = direction == .zoomIn
             ? Self.zoomInShortcut
@@ -173,6 +275,15 @@ final class ActionEngine {
     }
 
     func cancelAll() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        configurationGeneration &+= 1
+        resetActionState()
+    }
+
+    /// Called while holding stateLock. Input disconnects reset state without
+    /// invalidating a subsequent reconnect already queued in the same stream.
+    private func resetActionState() {
         heldScrollRepeater.stopAll()
         for control in Array(activeStates.keys) {
             finishActiveState(for: control)
@@ -446,13 +557,18 @@ final class ActionEngine {
                 return
             }
         }
-        let timer = DispatchSource.makeTimerSource(queue: .main)
+        let repeatID = UUID()
+        let timer = DispatchSource.makeTimerSource(queue: nativeActionsEnabled ? actionQueue : .main)
         timer.schedule(
             deadline: .now() + max(0.01, mapping.repeatDelay),
             repeating: max(0.01, mapping.repeatInterval)
         )
         timer.setEventHandler { [weak self] in
-            self?.fireDiscreteAction(mapping)
+            guard let self else { return }
+            self.stateLock.withLock {
+                guard self.activeStates[control]?.repeatID == repeatID else { return }
+                self.fireDiscreteAction(mapping)
+            }
         }
         timer.resume()
         activeStates[control] = ActiveControlState(
@@ -463,7 +579,8 @@ final class ActionEngine {
             isDragging: false,
             isToggledOn: false,
             timer: timer,
-            repeatActivity: ControllerRepeatActivity()
+            repeatActivity: ControllerRepeatActivity(),
+            repeatID: repeatID
         )
         if !firedInitialScroll { fireDiscreteAction(mapping) }
     }
@@ -607,15 +724,15 @@ final class ActionEngine {
             }
             triggerSpaceSwitch(.right)
         case .crossEdgeLeft:
-            onCrossEdgeSweep?(.left)
+            crossEdge(.left)
         case .crossEdgeRight:
-            onCrossEdgeSweep?(.right)
+            crossEdge(.right)
         case .crossEdgeUp:
-            onCrossEdgeSweep?(.up)
+            crossEdge(.up)
         case .crossEdgeDown:
-            onCrossEdgeSweep?(.down)
+            crossEdge(.down)
         case .toggleCursorSpeeds:
-            onToggleCursorSpeeds?()
+            notifyMain { [weak self] in self?.onToggleCursorSpeeds?() }
         }
     }
 
@@ -625,6 +742,7 @@ final class ActionEngine {
     }
 
     private func postShortcutDown(_ shortcut: ShortcutDescriptor) {
+        if let shortcutOutput { shortcutOutput(shortcut, true); return }
         if cursorEngine.universalControlInputBridge.postShortcutDown(
             keyCode: shortcut.keyCode,
             flags: shortcut.eventFlags
@@ -656,6 +774,7 @@ final class ActionEngine {
     }
 
     private func postShortcutUp(_ shortcut: ShortcutDescriptor) {
+        if let shortcutOutput { shortcutOutput(shortcut, false); return }
         if cursorEngine.universalControlInputBridge.postShortcutUp(
             keyCode: shortcut.keyCode,
             flags: shortcut.eventFlags
@@ -768,6 +887,8 @@ final class ActionEngine {
     }
 
     func performCompanionEvent(_ event: CompanionControlEvent) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
         guard isEnabled, accessibilityTrusted else { return }
         switch event.payload {
         case .mouse(let button, let phase):
@@ -789,6 +910,8 @@ final class ActionEngine {
     }
 
     func performDiagnosticLeftClick() -> String {
+        stateLock.lock()
+        defer { stateLock.unlock() }
         guard isEnabled else { return "Runtime is disabled." }
         guard accessibilityTrusted else { return "Accessibility permission is not granted." }
         postMouseClick(button: .left)
@@ -815,7 +938,11 @@ final class ActionEngine {
     }
 
     private func dispatchToCompanion(_ payload: CompanionControlEvent.Payload) -> Bool {
-        companionDispatch?(CompanionControlEvent(payload: payload)) ?? false
+        // Native actions never synchronously wait for the UI-owned network router.
+        guard Thread.isMainThread else { return false }
+        return MainActor.assumeIsolated {
+            companionDispatch?(CompanionControlEvent(payload: payload)) ?? false
+        }
     }
 
     private func triggerSpaceSwitch(_ direction: SpaceSwitchDirection) {
@@ -834,44 +961,19 @@ final class ActionEngine {
                 keyCode: hardwareShortcut.keyCode,
                 flags: hardwareShortcut.eventFlags
             )
-            onActionStatus?("Switched Space \(directionLabel) through the hardware input path.")
+            reportStatus("Switched Space \(directionLabel) through the hardware input path.")
             return
         }
 
-        var scriptFailureMessage: String?
-        let scriptSource = """
-        tell application "System Events"
-            key code \(keyCode) using control down
-        end tell
-        """
-
-        if let script = NSAppleScript(source: scriptSource) {
-            var scriptError: NSDictionary?
-            script.executeAndReturnError(&scriptError)
-            if scriptError == nil {
-                onActionStatus?("Switched Space \(directionLabel) via System Events.")
-                return
-            }
-
-            scriptFailureMessage = scriptError?[NSAppleScript.errorMessage] as? String ?? "unknown AppleScript error"
-        }
-
+        // Never block the input queue on a synchronous System Events AppleEvent.
         postShortcutTap(hardwareShortcut)
 
         let fallbackLabel = "Control-\(direction == .left ? "Left" : "Right")"
         if hasEnabledSystemShortcut(keyCode: keyCode, requiredFlags: [.maskControl]) {
-            if let scriptFailureMessage {
-                onActionStatus?("System Events failed for Space \(directionLabel): \(scriptFailureMessage). Sent \(fallbackLabel) fallback.")
-            } else {
-                onActionStatus?("Sent \(fallbackLabel) for Space \(directionLabel).")
-            }
+            reportStatus("Sent \(fallbackLabel) for Space \(directionLabel).")
         } else {
             let base = "Sent \(fallbackLabel), but this Mac does not have a matching Mission Control keyboard shortcut enabled."
-            if let scriptFailureMessage {
-                onActionStatus?("System Events failed for Space \(directionLabel): \(scriptFailureMessage). \(base)")
-            } else {
-                onActionStatus?("\(base) Assign one in Keyboard Shortcuts > Mission Control.")
-            }
+            reportStatus("\(base) Assign one in Keyboard Shortcuts > Mission Control.")
         }
     }
 
@@ -951,6 +1053,7 @@ private struct ActiveControlState {
     var isToggledOn: Bool
     var timer: DispatchSourceTimer?
     var repeatActivity: ControllerRepeatActivity? = nil
+    var repeatID: UUID? = nil
 }
 
 private extension ActionType {

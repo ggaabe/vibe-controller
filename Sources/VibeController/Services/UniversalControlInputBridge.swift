@@ -232,7 +232,7 @@ private final class RelativePointerOutput: @unchecked Sendable {
 /// compatibility fallback.
 @MainActor
 final class UniversalControlInputBridge {
-    private let virtualHIDBridge: PrivilegedVirtualHIDBridge
+    private nonisolated let virtualHIDBridge: PrivilegedVirtualHIDBridge
     private nonisolated let legacyPoster: LegacyHIDEventPoster
     private nonisolated let relativePointerOutput: RelativePointerOutput
     var onStatusChange: (() -> Void)? {
@@ -252,8 +252,8 @@ final class UniversalControlInputBridge {
         )
     }
 
-    var isAvailable: Bool {
-        virtualHIDBridge.isPointingReady || legacyPoster.isAvailable
+    nonisolated var isAvailable: Bool {
+        relativePointerOutput.isVirtualPointingReady || legacyPoster.isAvailable
     }
 
     var isVirtualHardwareReady: Bool {
@@ -311,7 +311,7 @@ final class UniversalControlInputBridge {
         relativePointerOutput.postScroll(vertical: vertical, horizontal: horizontal)
     }
 
-    func postShortcutDown(keyCode: UInt16, flags: CGEventFlags) -> Bool {
+    nonisolated func postShortcutDown(keyCode: UInt16, flags: CGEventFlags) -> Bool {
         if postVirtualShortcut(keyCode: keyCode, flags: flags, isDown: true) {
             return true
         }
@@ -322,7 +322,7 @@ final class UniversalControlInputBridge {
         )
     }
 
-    func postShortcutUp(keyCode: UInt16, flags: CGEventFlags) -> Bool {
+    nonisolated func postShortcutUp(keyCode: UInt16, flags: CGEventFlags) -> Bool {
         if postVirtualShortcut(keyCode: keyCode, flags: flags, isDown: false) {
             return true
         }
@@ -341,7 +341,7 @@ final class UniversalControlInputBridge {
         )
     }
 
-    private func postVirtualShortcut(keyCode: UInt16, flags: CGEventFlags, isDown: Bool) -> Bool {
+    private nonisolated func postVirtualShortcut(keyCode: UInt16, flags: CGEventFlags, isDown: Bool) -> Bool {
         if keyCode == 63 {
             return virtualHIDBridge.postFunction(isDown: isDown)
         }
@@ -406,7 +406,7 @@ final class UniversalControlInputBridge {
         122: 0x3a, 123: 0x50, 124: 0x4f, 125: 0x51, 126: 0x52,
     ]
 
-    private func postKeyboardEvent(
+    private nonisolated func postKeyboardEvent(
         eventType: UInt32,
         keyCode: UInt16,
         flags: CGEventFlags
@@ -423,7 +423,7 @@ final class UniversalControlInputBridge {
         )
     }
 
-    private func post(
+    private nonisolated func post(
         eventType: UInt32,
         eventData: inout NXEventData,
         includeGlobalFlags: Bool,

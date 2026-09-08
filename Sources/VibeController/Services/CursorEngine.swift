@@ -34,7 +34,7 @@ final class CursorEngine: @unchecked Sendable {
     typealias MovementInterceptor = @MainActor @Sendable (CGPoint, SIMD2<Double>) -> Bool
     typealias ZoomStepHandler = @MainActor @Sendable (StickZoomDirection) -> Void
 
-    let universalControlInputBridge: UniversalControlInputBridge
+    nonisolated let universalControlInputBridge: UniversalControlInputBridge
     private nonisolated let motionLoop: CursorMotionLoop
 
     var isEnabled = true {
@@ -79,19 +79,19 @@ final class CursorEngine: @unchecked Sendable {
         motionLoop.updateConfiguration(cursorConfiguration)
     }
 
-    func beginLeftDrag() {
+    nonisolated func beginLeftDrag() {
         motionLoop.beginLeftDrag()
     }
 
-    func endLeftDrag() {
+    nonisolated func endLeftDrag() {
         motionLoop.endLeftDrag()
     }
 
-    func releaseTransientState() {
+    nonisolated func releaseTransientState() {
         motionLoop.releaseTransientState()
     }
 
-    func currentCursorPosition() -> CGPoint {
+    nonisolated func currentCursorPosition() -> CGPoint {
         motionLoop.currentCursorPosition()
     }
 
@@ -107,7 +107,7 @@ final class CursorEngine: @unchecked Sendable {
         motionLoop.performDiagnosticNudge()
     }
 
-    func performCrossEdgeSweep(_ direction: CrossEdgeDirection) -> String {
+    nonisolated func performCrossEdgeSweep(_ direction: CrossEdgeDirection) -> String {
         motionLoop.performCrossEdgeSweep(direction)
     }
 }

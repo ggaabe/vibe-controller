@@ -3,6 +3,22 @@ import Foundation
 import XCTest
 
 final class ControllerInputRelayTests: XCTestCase {
+    @MainActor
+    func testDeclinedNativeActionsAreDeliveredToCompanionHandlerOnce() async {
+        let relay = ControllerInputRelay(inputQueue: DispatchQueue(label: "test.companion-routing"))
+        let delivered = expectation(description: "companion action")
+        var count = 0
+        relay.setRealtimeActionHandler { _ in false }
+        relay.setActionHandler { _ in
+            XCTAssertTrue(Thread.isMainThread)
+            count += 1
+            delivered.fulfill()
+        }
+        relay.receiveGameController(makeSnapshot(x: 0, pressed: [.buttonEast]))
+        await fulfillment(of: [delivered], timeout: 1)
+        XCTAssertEqual(count, 1)
+    }
+
     func testSnapshotPayloadComparisonIgnoresTelemetryTimestamp() {
         let first = makeSnapshot(x: 0.25, timestamp: Date(timeIntervalSince1970: 1))
         let second = makeSnapshot(x: 0.25, timestamp: Date(timeIntervalSince1970: 2))

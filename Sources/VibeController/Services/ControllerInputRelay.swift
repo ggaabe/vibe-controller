@@ -39,6 +39,7 @@ extension ControllerSnapshot {
 /// stream, and a coalesced UI stream. Every mutation occurs on `inputQueue`.
 final class ControllerInputRelay: @unchecked Sendable {
     typealias RealtimeHandler = @Sendable (ControllerSnapshot) -> Void
+    typealias RealtimeActionHandler = @Sendable (ControllerSnapshot) -> Bool
     typealias MainHandler = @MainActor @Sendable (ControllerSnapshot) -> Void
 
     private static let telemetryIntervalNanoseconds = 66_666_667
@@ -48,6 +49,7 @@ final class ControllerInputRelay: @unchecked Sendable {
     private var telemetryTimer: DispatchSourceTimer?
     private var realtimeHandler: RealtimeHandler?
     private var actionHandler: MainHandler?
+    private var realtimeActionHandler: RealtimeActionHandler?
     private var latestSnapshot = ControllerSnapshot.disconnected
     private var lastTelemetrySnapshot: ControllerSnapshot?
     private var lastActionState: ControllerActionState?
@@ -83,6 +85,10 @@ final class ControllerInputRelay: @unchecked Sendable {
         inputQueue.async { [weak self] in
             self?.actionHandler = handler
         }
+    }
+
+    func setRealtimeActionHandler(_ handler: RealtimeActionHandler?) {
+        inputQueue.async { [weak self] in self?.realtimeActionHandler = handler }
     }
 
     func receiveGameController(_ snapshot: ControllerSnapshot, forceTelemetry: Bool = false) {
@@ -155,7 +161,8 @@ final class ControllerInputRelay: @unchecked Sendable {
         let actionState = snapshot.actionState
         if actionState != lastActionState {
             lastActionState = actionState
-            if let actionHandler {
+            let handledNatively = realtimeActionHandler?(snapshot) ?? false
+            if !handledNatively, let actionHandler {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         actionHandler(snapshot)
