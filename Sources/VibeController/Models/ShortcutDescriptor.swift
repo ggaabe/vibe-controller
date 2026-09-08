@@ -198,7 +198,7 @@ struct ShortcutDescriptor: Codable, Hashable, Sendable {
         48: "⇥",
         49: "Space",
         51: "⌫",
-        53: "⎋",
+        53: "Escape",
         54: "R⌘",
         55: "L⌘",
         56: "L⇧",

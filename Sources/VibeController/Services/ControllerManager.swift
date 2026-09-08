@@ -194,6 +194,7 @@ final class ControllerManager: ObservableObject {
         gamepad.buttonHome?.preferredSystemGestureState = .disabled
         gamepad.buttonOptions?.preferredSystemGestureState = .disabled
         gamepad.buttonMenu.preferredSystemGestureState = .disabled
+        (gamepad as? GCXboxGamepad)?.buttonShare?.preferredSystemGestureState = .disabled
 
         if let dualSense = gamepad as? GCDualSenseGamepad {
             dualSense.touchpadButton.preferredSystemGestureState = .disabled
@@ -264,6 +265,7 @@ final class ControllerManager: ObservableObject {
         capture(.menu, input: gamepad.buttonMenu)
         capture(.options, input: gamepad.buttonOptions)
         capture(.home, input: gamepad.buttonHome)
+        capture(.share, input: (gamepad as? GCXboxGamepad)?.buttonShare)
         if let dualSense = gamepad as? GCDualSenseGamepad {
             capture(.touchpadButton, input: dualSense.touchpadButton)
         } else if let dualShock = gamepad as? GCDualShockGamepad {

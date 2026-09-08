@@ -589,7 +589,7 @@ extension ControllerProfile {
 
     static let gabesDefaults = ControllerProfile(
         id: "gabes-defaults",
-        name: "Gabe's Defaults",
+        name: "GAPE",
         cursor: CursorConfiguration(
             primaryStick: .left,
             precisionStick: .right,
@@ -685,6 +685,11 @@ extension ControllerProfile {
                         shortcut: ShortcutDescriptor(keyCode: 47, modifiers: []),
                         triggerMode: .tap
                     ),
+                    .leftThumbstickButton: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 36, modifiers: [.shift]),
+                        triggerMode: .tap
+                    ),
                     .rightShoulder: ControllerActionMapping(
                         actionType: .keyboardShortcut,
                         shortcut: .leftRightModifierChord(.command),
@@ -707,6 +712,11 @@ extension ControllerProfile {
                     .menu: ControllerActionMapping(
                         actionType: .keyboardShortcut,
                         shortcut: ShortcutDescriptor(keyCode: 48, modifiers: []),
+                        triggerMode: .tap
+                    ),
+                    .leftThumbstickButton: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 36, modifiers: [.shift]),
                         triggerMode: .tap
                     ),
                     .dpadLeft: ControllerActionMapping(actionType: .crossEdgeLeft),

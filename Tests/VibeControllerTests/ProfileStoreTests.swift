@@ -3,6 +3,25 @@ import Foundation
 import XCTest
 
 final class ProfileStoreTests: XCTestCase {
+    func testFreshInstallExactlyMatchesTheSavedGAPEProfileSnapshot() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let snapshot = try JSONDecoder().decode(
+            ControllerProfile.self,
+            from: Data(contentsOf: root.appendingPathComponent("Profiles/GAPE.json")))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ProfileStore(baseDirectoryURL: directory)
+        let document = try store.loadOrCreate()
+        XCTAssertEqual(document.profiles, [snapshot])
+        XCTAssertEqual(document.activeProfileId, snapshot.id)
+        for modifier in [ControllerControlID.leftShoulder, .rightShoulder] {
+            XCTAssertEqual(
+                snapshot.effectiveMapping(for: .leftThumbstickButton, modifierControl: modifier).shortcut,
+                ShortcutDescriptor(keyCode: 36, modifiers: [.shift]))
+        }
+    }
+
     func testDevelopmentBuildKeepsProfilesSeparateFromProduction() {
         XCTAssertEqual(
             ProfileStore.defaultDirectoryName(bundleIdentifier: "com.vibe-controller.app"),
@@ -25,7 +44,7 @@ final class ProfileStoreTests: XCTestCase {
         let document = try store.loadOrCreate()
 
         XCTAssertEqual(document.version, 5)
-        XCTAssertEqual(document.profiles.first?.name, "Gabe's Defaults")
+        XCTAssertEqual(document.profiles.first?.name, "GAPE")
         XCTAssertEqual(document.activeProfileId, "gabes-defaults")
         XCTAssertEqual(document.profiles.first?.mappings[.buttonWest]?.shortcut?.displayString, "⇧⌘2")
         XCTAssertEqual(document.profiles.first?.mappings[.buttonEast]?.shortcut?.displayString, "^⇧⌘4")

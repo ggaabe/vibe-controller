@@ -1,0 +1,409 @@
+{
+  "applicationMappings": [
+    {
+      "bundleIdentifier": "com.openai.codex",
+      "displayName": "Codex / ChatGPT",
+      "mappings": {
+        "menu": {
+          "actionType": "keyboardShortcut",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "shortcut": {
+            "keyCode": 45,
+            "modifiers": [
+              "command"
+            ]
+          },
+          "triggerMode": "tap"
+        }
+      },
+      "modifierLayers": [
+        {
+          "mappings": {
+            "menu": {
+              "actionType": "keyboardShortcut",
+              "repeatDelay": 0.35,
+              "repeatInterval": 0.08,
+              "shortcut": {
+                "keyCode": 0,
+                "modifiers": [
+                  "option",
+                  "command"
+                ]
+              },
+              "triggerMode": "tap"
+            },
+            "options": {
+              "actionType": "keyboardShortcut",
+              "repeatDelay": 0.35,
+              "repeatInterval": 0.08,
+              "shortcut": {
+                "keyCode": 3,
+                "modifiers": [
+                  "option",
+                  "shift",
+                  "command"
+                ]
+              },
+              "triggerMode": "tap"
+            }
+          },
+          "modifierControl": "leftShoulder"
+        },
+        {
+          "mappings": {
+            "menu": {
+              "actionType": "keyboardShortcut",
+              "repeatDelay": 0.35,
+              "repeatInterval": 0.08,
+              "shortcut": {
+                "keyCode": 0,
+                "modifiers": [
+                  "option",
+                  "command"
+                ]
+              },
+              "triggerMode": "tap"
+            },
+            "options": {
+              "actionType": "keyboardShortcut",
+              "repeatDelay": 0.35,
+              "repeatInterval": 0.08,
+              "shortcut": {
+                "keyCode": 3,
+                "modifiers": [
+                  "option",
+                  "shift",
+                  "command"
+                ]
+              },
+              "triggerMode": "tap"
+            }
+          },
+          "modifierControl": "rightShoulder"
+        }
+      ]
+    }
+  ],
+  "cursor": {
+    "accelerationEnabled": true,
+    "deadZone": 0.12,
+    "flickBoostEnabled": false,
+    "horizontalSpeedMultiplier": 1,
+    "invertPrecisionX": false,
+    "invertPrecisionY": false,
+    "invertPrimaryX": false,
+    "invertPrimaryY": false,
+    "precisionSpeed": 565.6513935810809,
+    "precisionStick": "right",
+    "primarySpeed": 2227.5417018581084,
+    "primaryStick": "left",
+    "responseCurve": 1.8,
+    "smoothing": 0.5,
+    "verticalSpeedMultiplier": 1,
+    "zoomGestureEnabled": false
+  },
+  "id": "gabes-defaults",
+  "mappings": {
+    "buttonEast": {
+      "actionType": "keyboardShortcut",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "shortcut": {
+        "keyCode": 21,
+        "modifiers": [
+          "control",
+          "shift",
+          "command"
+        ]
+      },
+      "triggerMode": "tap"
+    },
+    "buttonNorth": {
+      "actionType": "keyboardShortcut",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "shortcut": {
+        "keyCode": 9,
+        "modifiers": [
+          "command"
+        ]
+      },
+      "triggerMode": "tap"
+    },
+    "buttonSouth": {
+      "actionType": "leftClick",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "shortcut": {
+        "keyCode": 36,
+        "modifiers": []
+      },
+      "triggerMode": "tap"
+    },
+    "buttonWest": {
+      "actionType": "keyboardShortcut",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "shortcut": {
+        "keyCode": 19,
+        "modifiers": [
+          "shift",
+          "command"
+        ]
+      },
+      "triggerMode": "tap"
+    },
+    "dpadDown": {
+      "actionType": "scrollDown",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "triggerMode": "repeatWhileHeld"
+    },
+    "dpadLeft": {
+      "actionType": "switchSpaceLeft",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "triggerMode": "tap"
+    },
+    "dpadRight": {
+      "actionType": "switchSpaceRight",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "triggerMode": "tap"
+    },
+    "dpadUp": {
+      "actionType": "scrollUp",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "triggerMode": "repeatWhileHeld"
+    },
+    "home": {
+      "actionType": "keyboardShortcut",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "shortcut": {
+        "keyCode": 13,
+        "modifiers": [
+          "command"
+        ]
+      },
+      "triggerMode": "tap"
+    },
+    "leftShoulder": {
+      "actionType": "keyboardShortcut",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "shortcut": {
+        "keyCode": 53,
+        "modifiers": []
+      },
+      "triggerMode": "tap"
+    },
+    "leftThumbstickButton": {
+      "actionType": "keyboardShortcut",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "shortcut": {
+        "keyCode": 36,
+        "modifiers": []
+      },
+      "triggerMode": "tap"
+    },
+    "leftTrigger": {
+      "actionType": "leftMouseHold",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "triggerMode": "holdWhilePressed"
+    },
+    "menu": {
+      "actionType": "keyboardShortcut",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "shortcut": {
+        "keyCode": 17,
+        "modifiers": [
+          "command"
+        ]
+      },
+      "triggerMode": "tap"
+    },
+    "options": {
+      "actionType": "keyboardShortcut",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "shortcut": {
+        "keyCode": 8,
+        "modifiers": [
+          "command"
+        ]
+      },
+      "triggerMode": "tap"
+    },
+    "rightShoulder": {
+      "actionType": "rightClick",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "triggerMode": "tap"
+    },
+    "rightThumbstickButton": {
+      "actionType": "keyboardShortcut",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "shortcut": {
+        "keyCode": 51,
+        "modifiers": []
+      },
+      "triggerMode": "tap"
+    },
+    "rightTrigger": {
+      "actionType": "keyboardShortcut",
+      "repeatDelay": 0.35,
+      "repeatInterval": 0.08,
+      "shortcut": {
+        "keyCode": 63,
+        "modifiers": []
+      },
+      "triggerMode": "holdWhilePressed"
+    }
+  },
+  "modifierLayers": [
+    {
+      "mappings": {
+        "buttonNorth": {
+          "actionType": "keyboardShortcut",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "shortcut": {
+            "keyCode": 49,
+            "modifiers": []
+          },
+          "triggerMode": "tap"
+        },
+        "buttonWest": {
+          "actionType": "keyboardShortcut",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "shortcut": {
+            "keyCode": 47,
+            "modifiers": []
+          },
+          "triggerMode": "tap"
+        },
+        "dpadDown": {
+          "actionType": "crossEdgeDown",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "triggerMode": "tap"
+        },
+        "dpadLeft": {
+          "actionType": "crossEdgeLeft",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "triggerMode": "tap"
+        },
+        "dpadRight": {
+          "actionType": "crossEdgeRight",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "triggerMode": "tap"
+        },
+        "dpadUp": {
+          "actionType": "crossEdgeUp",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "triggerMode": "tap"
+        },
+        "leftThumbstickButton": {
+          "actionType": "keyboardShortcut",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "shortcut": {
+            "keyCode": 36,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          "triggerMode": "tap"
+        },
+        "rightShoulder": {
+          "actionType": "keyboardShortcut",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "shortcut": {
+            "keyCode": 54,
+            "modifiers": [
+              "command"
+            ]
+          },
+          "triggerMode": "tap"
+        }
+      },
+      "modifierControl": "leftShoulder"
+    },
+    {
+      "mappings": {
+        "buttonNorth": {
+          "actionType": "keyboardShortcut",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "shortcut": {
+            "keyCode": 9,
+            "modifiers": [
+              "control"
+            ]
+          },
+          "triggerMode": "tap"
+        },
+        "dpadDown": {
+          "actionType": "crossEdgeDown",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "triggerMode": "tap"
+        },
+        "dpadLeft": {
+          "actionType": "crossEdgeLeft",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "triggerMode": "tap"
+        },
+        "dpadRight": {
+          "actionType": "crossEdgeRight",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "triggerMode": "tap"
+        },
+        "dpadUp": {
+          "actionType": "crossEdgeUp",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "triggerMode": "tap"
+        },
+        "leftThumbstickButton": {
+          "actionType": "keyboardShortcut",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "shortcut": {
+            "keyCode": 36,
+            "modifiers": [
+              "shift"
+            ]
+          },
+          "triggerMode": "tap"
+        },
+        "menu": {
+          "actionType": "keyboardShortcut",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "shortcut": {
+            "keyCode": 48,
+            "modifiers": []
+          },
+          "triggerMode": "tap"
+        }
+      },
+      "modifierControl": "rightShoulder"
+    }
+  ],
+  "name": "GAPE"
+}

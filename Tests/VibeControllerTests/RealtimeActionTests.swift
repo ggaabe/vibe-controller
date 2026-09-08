@@ -4,6 +4,34 @@ import XCTest
 
 @MainActor
 final class RealtimeActionTests: XCTestCase {
+    func testShareShortcutAndModifierOverrideExecuteOncePerPress() {
+        let recorder = ShortcutRecorder()
+        let finished = DispatchSemaphore(value: 0)
+        let engine = ActionEngine(cursorEngine: CursorEngine(), shortcutOutput: { shortcut, down in
+            recorder.record(shortcut, down: down)
+            if !down { finished.signal() }
+        })
+        defer { engine.cancelAll() }
+        engine.accessibilityTrusted = true
+        var profile = ControllerProfile.gabesDefaults
+        profile.mappings[.share] = ControllerActionMapping(
+            actionType: .keyboardShortcut, shortcut: ShortcutDescriptor(keyCode: 8, modifiers: [.command]), triggerMode: .tap)
+        let rb = profile.modifierLayers.firstIndex { $0.modifierControl == .rightShoulder }!
+        profile.modifierLayers[rb].mappings[.share] = ControllerActionMapping(
+            actionType: .keyboardShortcut, shortcut: ShortcutDescriptor(keyCode: 9, modifiers: [.control]), triggerMode: .tap)
+        engine.configureRealtimeActions(profile: profile, applicationBundleIdentifier: nil, enabled: true)
+        XCTAssertTrue(engine.receiveRealtimeActions(snapshot([.share])))
+        XCTAssertTrue(engine.receiveRealtimeActions(snapshot([.share])))
+        XCTAssertTrue(engine.receiveRealtimeActions(snapshot([])))
+        XCTAssertEqual(finished.wait(timeout: .now() + 0.5), .success)
+        XCTAssertTrue(engine.receiveRealtimeActions(snapshot([.rightShoulder, .share])))
+        XCTAssertTrue(engine.receiveRealtimeActions(snapshot([])))
+        XCTAssertEqual(finished.wait(timeout: .now() + 0.5), .success)
+        XCTAssertEqual(recorder.samples.map(\.shortcut.keyCode), [8, 8, 9, 9])
+        XCTAssertEqual(recorder.samples.map(\.down), [true, false, true, false])
+        XCTAssertFalse(recorder.samples.contains(where: \.wasMainThread))
+    }
+
     func testScreenshotAndDictationExecuteWhileMainThreadIsBlocked() {
         let recorder = ShortcutRecorder()
         let finished = DispatchSemaphore(value: 0)

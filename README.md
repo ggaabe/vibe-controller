@@ -67,8 +67,11 @@ Profiles are saved locally at `~/Library/Application Support/Vibe Controller/pro
 
 The controller workspace uses original, resolution-independent Xbox and PlayStation SVG artwork with visible bumpers and triggers. The layout follows your connected controller; use the **Xbox / PlayStation** menu above the illustration to preview either design without changing your profile.
 
+Use **Color** beside the layout selector to choose Original, Graphite, White, Blue, Pink, or Green. Shell colors are remembered separately for Xbox and PlayStation, including after restarting the app. This changes only the illustration: button colors, live input highlights, mappings, and profiles stay unchanged. **Original** restores the layout's stock finish.
+
 - Action labels appear around the controller by default, with lines connecting them to each button. Click a label or physical button to remap it. **Show labels** remembers your preference; when labels are hidden, hover over a button to inspect its action below the map. Click the stick itself for **L3 / R3**; use the **Left Stick / Right Stick** controls below the artwork to change its cursor role.
 - Live input moves the thumbstick caps, fills and depresses triggers in proportion to their pull, and lights up pressed buttons. Short taps remain visible briefly without extending their mapped action. Feedback works with labels on or off; display interpolation does not affect the real-time cursor or HID loop.
+- **Xbox Share** (the upload-shaped button below Home) is remappable: click the icon or its **Share** label, or find it in **Bindings**. It starts with **No action**, preserving existing profiles. You can assign a shortcut, add modifier overrides, or use Share itself as a modifier. Xbox Series X|S USB input is read directly, including during Universal Control handoff; other connections use [Apple's optional Share-button input](https://developer.apple.com/documentation/gamecontroller/gcxboxgamepad/buttonshare). The app requests that macOS disable its competing capture gestures while handling the controller. Older Xbox controllers without a physical Share button cannot generate this input. PlayStation Share/Create remains the existing **Create** control.
 - Choose **Bindings** to search all buttons and assigned actions in a readable list.
 - Use **App** to edit system-wide settings or an app-specific override. Apps without an override inherit **All Apps**.
 - Select a modifier layer or hold its controller button to update the visible action labels and highlight its overrides. In the artwork-only view, modifier shortcuts appear as chips below the map.
@@ -104,9 +107,11 @@ Yes—the HID component is required. Universal Control stops forwarding ordinary
 
 Public downloads are built by the tag-driven release workflow, which requires Developer ID Application and Installer certificates, notarizes the installer, app, and DMG, validates them with Gatekeeper, and publishes SHA-256 checksums. See [RELEASING.md](RELEASING.md) for credential setup and release steps. Local source builds can use an Apple Development identity and an unsigned outer installer, but macOS will still show the expected administrator approval.
 
-## Gabe's Defaults
+## GAPE profile (Gabe's defaults)
 
-Fresh installs start with the bundled **Gabe's Defaults** profile:
+Fresh installs start with the bundled **GAPE** profile, containing Gabe's saved defaults:
+
+The complete saved configuration is also available as an [importable JSON profile](Profiles/GAPE.json). A fresh-install test checks that the bundled defaults exactly match this snapshot. Updating the app does not overwrite an existing saved profile or rename an existing **Gabe's Defaults** profile.
 
 PlayStation controllers use the same physical-position mappings: Cross/Circle/Square/Triangle correspond to A/B/X/Y, L1/R1/L2/R2 correspond to LB/RB/LT/RT, Create corresponds to View, Options corresponds to Menu, and PS corresponds to Home. The PlayStation touchpad click is also available as an additional remappable control.
 
@@ -193,7 +198,7 @@ Modifier combinations are resolved on the controller-connected Mac before the re
 
 For example, add an **LB** modifier layer and map **LB + D-pad Left/Right/Up/Down** to the matching **Cross Edge** actions. Each action sends a brief, fast virtual-mouse sweep through the chosen Universal Control edge; the other Mac does not need Vibe Controller installed.
 
-Gabe's Defaults ships with the current modifier setup already configured:
+GAPE ships with the current modifier setup already configured:
 
 | Combination | Action |
 | --- | --- |
@@ -201,6 +206,7 @@ Gabe's Defaults ships with the current modifier setup already configured:
 | LB + Y / Triangle | Type a Space |
 | RB / R1 + Y / Triangle | Send Control-V (alternate paste / app-specific command) |
 | RB / R1 + Menu / Options | Press Tab (for CLI queueing or navigation); plain Menu remains Command-T |
+| LB / L1 or RB / R1 + L3 | Press Shift + Return (insert a newline in supported apps) |
 | LB + RB / R1 | Press Left Command + Right Command |
 | LB + D-pad direction | Cross the matching Universal Control edge |
 | RB / R1 + D-pad direction | Cross the matching Universal Control edge |

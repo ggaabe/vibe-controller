@@ -891,9 +891,8 @@ final class AppModel: ObservableObject {
 
     var availableModifierControls: [ControllerControlID] {
         let existing = Set(activeProfile.modifierLayers.map(\.modifierControl))
-        return ControllerControlID.mappingControls.filter { control in
-            !existing.contains(control) &&
-                (control != .touchpadButton || controllerSnapshot.controllerFamily == .playStation)
+        return ControllerControlID.mappingControls(for: controllerSnapshot.controllerFamily).filter { control in
+            !existing.contains(control)
         }
     }
 

@@ -2,6 +2,20 @@
 import XCTest
 
 final class ShortcutDescriptorTests: XCTestCase {
+    func testEscapeUsesAReadableNameIncludingModifierCombinations() {
+        XCTAssertEqual(ShortcutDescriptor.displayName(for: 53), "Escape")
+        XCTAssertEqual(ShortcutDescriptor(keyCode: 53, modifiers: []).displayString, "Escape")
+        XCTAssertEqual(
+            ShortcutDescriptor(keyCode: 53, modifiers: [.command, .option]).displayString,
+            "⌥⌘Escape")
+    }
+
+    func testGabeLeftBumperDisplaysEscapeWithoutChangingItsBinding() throws {
+        let mapping = try XCTUnwrap(ControllerProfile.gabesDefaults.mappings[.leftShoulder])
+        XCTAssertEqual(mapping.summary, "Escape")
+        XCTAssertEqual(mapping.shortcut, ShortcutDescriptor(keyCode: 53, modifiers: []))
+    }
+
     func testSinglePhysicalModifierCanBeAssignedAsAHoldAction() {
         let shortcut = ShortcutDescriptor(keyCode: 61, modifiers: [])
 

@@ -117,14 +117,17 @@ enum XboxUSBReportParser {
     static func parse(
         reportID: Int,
         bytes: [UInt8],
-        previous: XboxUSBInputState = XboxUSBInputState()
+        previous: XboxUSBInputState = XboxUSBInputState(),
+        supportsShareButton: Bool = false
     ) -> XboxUSBInputState? {
         let includesReportID = bytes.first == UInt8(truncatingIfNeeded: reportID)
         let payloadStart = includesReportID ? 0 : -1
 
         switch reportID {
         case 0x20:
-            return parseStandardInput(bytes, payloadStart: payloadStart, previous: previous)
+            return parseStandardInput(
+                bytes, payloadStart: payloadStart, previous: previous,
+                supportsShareButton: supportsShareButton)
         case 0x07:
             return parseGuideButton(bytes, payloadStart: payloadStart, previous: previous)
         default:
@@ -135,7 +138,8 @@ enum XboxUSBReportParser {
     private static func parseStandardInput(
         _ bytes: [UInt8],
         payloadStart: Int,
-        previous: XboxUSBInputState
+        previous: XboxUSBInputState,
+        supportsShareButton: Bool
     ) -> XboxUSBInputState? {
         guard let buttonByte1 = byte(atProtocolOffset: 4, in: bytes, payloadStart: payloadStart),
               let buttonByte2 = byte(atProtocolOffset: 5, in: bytes, payloadStart: payloadStart),
@@ -174,6 +178,13 @@ enum XboxUSBReportParser {
         capture(.rightShoulder, byte: buttonByte2, mask: 0x20)
         capture(.leftThumbstickButton, byte: buttonByte2, mask: 0x40)
         capture(.rightThumbstickButton, byte: buttonByte2, mask: 0x80)
+
+        // Series X|S GIP input reports put Share at byte 22, bit 0.
+        // Gate by hardware: Elite firmware uses this same byte for paddles.
+        // See https://github.com/paroj/xpad/blob/master/xpad.c (MAP_SELECT_BUTTON).
+        if supportsShareButton {
+            capture(.share, byte: byte(atProtocolOffset: 22, in: bytes, payloadStart: payloadStart) ?? 0, mask: 0x01)
+        }
 
         let normalizedLeftTrigger = min(1, Double(leftTrigger) / 1_023)
         let normalizedRightTrigger = min(1, Double(rightTrigger) / 1_023)
@@ -270,7 +281,7 @@ enum XboxUSBReportParser {
 }
 
 private enum DirectUSBControllerKind: Equatable {
-    case xbox
+    case xbox(supportsShareButton: Bool)
     case playStation(PlayStationUSBControllerKind)
 
     var family: ControllerFamily {
@@ -400,11 +411,12 @@ final class XboxUSBControllerReader: @unchecked Sendable {
         guard matchedDeviceIDs.contains(deviceID), let kind = deviceKinds[deviceID] else { return }
         let parsed: XboxUSBInputState?
         switch kind {
-        case .xbox:
+        case .xbox(let supportsShareButton):
             parsed = XboxUSBReportParser.parse(
                 reportID: reportID,
                 bytes: bytes,
-                previous: latestState
+                previous: latestState,
+                supportsShareButton: supportsShareButton
             )
         case .playStation(let playStationKind):
             parsed = PlayStationUSBReportParser.parse(
@@ -424,7 +436,7 @@ final class XboxUSBControllerReader: @unchecked Sendable {
         }
         guard hasReceivedStandardInput else { return }
 
-        if kind == .xbox, reportID == 0x07 {
+        if kind.family == .xbox, reportID == 0x07 {
             updateHomeReleaseFallback(for: parsed)
         }
 
@@ -477,7 +489,7 @@ final class XboxUSBControllerReader: @unchecked Sendable {
 
             let value = valuePointer.pointee.takeUnretainedValue()
             let length = IOHIDValueGetLength(value)
-            let minimumLength = kind == .xbox ? 18 : 10
+            let minimumLength = kind.family == .xbox ? 18 : 10
             guard length >= minimumLength else { continue }
             let bytes = Array(
                 UnsafeBufferPointer(start: IOHIDValueGetBytePtr(value), count: length)
@@ -522,7 +534,7 @@ final class XboxUSBControllerReader: @unchecked Sendable {
         let productID = numberProperty(kIOHIDProductIDKey, device: device)
         switch (vendorID, productID) {
         case (0x045e, _):
-            return .xbox
+            return .xbox(supportsShareButton: productID == 0x0b12)
         case (0x054c, 0x05c4), (0x054c, 0x09cc):
             return .playStation(.dualShock4)
         case (0x054c, 0x0ce6), (0x054c, 0x0df2):

@@ -45,6 +45,10 @@ guard let controller = GCController.current ?? controllers.first(where: { $0.ext
 }
 
 print("Listening to \(controller.vendorName ?? "Unknown") for 10 seconds. Move sticks or press buttons.")
+if let share = (gamepad as? GCXboxGamepad)?.buttonShare {
+    share.preferredSystemGestureState = .disabled
+    print("Xbox Share button is exposed by GameController.")
+}
 
 gamepad.valueChangedHandler = { _, element in
     let name = element.localizedName ?? String(describing: type(of: element))
@@ -61,6 +65,7 @@ gamepad.valueChangedHandler = { _, element in
         ("RT", gamepad.rightTrigger.isPressed),
         ("View", gamepad.buttonOptions?.isPressed ?? false),
         ("Menu", gamepad.buttonMenu.isPressed),
+        ("Share", (gamepad as? GCXboxGamepad)?.buttonShare?.isPressed ?? false),
     ]
     .filter(\.1)
     .map(\.0)
@@ -82,6 +87,15 @@ gamepad.valueChangedHandler = { _, element in
 RunLoop.main.run(until: Date().addingTimeInterval(10))
 
 private func runRawHIDProbe() {
+    let arguments = CommandLine.arguments
+    let duration: TimeInterval
+    if let index = arguments.firstIndex(of: "--duration"),
+       arguments.indices.contains(index + 1),
+       let requested = Double(arguments[index + 1]), requested.isFinite {
+        duration = min(300, max(1, requested))
+    } else {
+        duration = 15
+    }
     let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
     let matching: [String: Any] = [
         kIOHIDDeviceUsagePageKey: kHIDPage_GenericDesktop,
@@ -131,8 +145,8 @@ private func runRawHIDProbe() {
     IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
     let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
     print(String(format: "Raw HID manager open: 0x%08x", result))
-    print("Listening to gamepad HID values for 15 seconds.")
-    RunLoop.main.run(until: Date().addingTimeInterval(15))
+    print("Listening to gamepad HID values for \(Int(duration)) seconds.")
+    RunLoop.main.run(until: Date().addingTimeInterval(duration))
     IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
 }
 

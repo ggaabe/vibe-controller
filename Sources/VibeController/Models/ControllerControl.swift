@@ -97,6 +97,7 @@ enum ControllerControlID: String, CaseIterable, Codable, Identifiable, Hashable,
     case menu
     case options
     case home
+    case share
     case touchpadButton
 
     var id: String { rawValue }
@@ -141,6 +142,8 @@ enum ControllerControlID: String, CaseIterable, Codable, Identifiable, Hashable,
             return "View"
         case .home:
             return "Home"
+        case .share:
+            return "Share"
         case .touchpadButton:
             return "Touchpad"
         }
@@ -234,6 +237,8 @@ enum ControllerControlID: String, CaseIterable, Codable, Identifiable, Hashable,
             return "square.on.square"
         case .home:
             return "house.circle"
+        case .share:
+            return "square.and.arrow.up"
         case .touchpadButton:
             return "rectangle.inset.filled"
         }
@@ -248,4 +253,14 @@ enum ControllerControlID: String, CaseIterable, Codable, Identifiable, Hashable,
     }
 
     static let mappingControls: [ControllerControlID] = Self.allCases.filter(\.isMappingEligible)
+
+    static func mappingControls(for family: ControllerFamily) -> [ControllerControlID] {
+        mappingControls.filter {
+            switch $0 {
+            case .share: return family != .playStation
+            case .touchpadButton: return family == .playStation
+            default: return true
+            }
+        }
+    }
 }

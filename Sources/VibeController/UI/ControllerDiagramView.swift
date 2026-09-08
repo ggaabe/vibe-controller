@@ -12,6 +12,8 @@ struct ControllerDiagramView: View {
     @State private var search = ""
     @State private var hoveredControl: ControllerControlID?
     @AppStorage("controllerMap.showLabels") private var showsLabels = true
+    @AppStorage("controllerMap.xboxColor") private var xboxColor: ControllerShellColor = .original
+    @AppStorage("controllerMap.playStationColor") private var playStationColor: ControllerShellColor = .original
 
     private var family: ControllerFamily {
         previewFamily ?? (appModel.controllerSnapshot.controllerFamily == .playStation ? .playStation : .xbox)
@@ -113,6 +115,9 @@ struct ControllerDiagramView: View {
                 .menuStyle(.borderlessButton).fixedSize()
                 .accessibilityLabel("Controller artwork")
                 .help("Choose a layout to preview. Automatic follows your connected controller.")
+                ControllerColorPicker(
+                    selection: family == .playStation ? $playStationColor : $xboxColor,
+                    family: family)
                 Spacer()
                 Toggle("Show labels", isOn: $showsLabels)
                     .toggleStyle(.checkbox)
@@ -164,6 +169,7 @@ struct ControllerDiagramView: View {
     private var hardwareMap: ControllerHardwareMap {
         ControllerHardwareMap(
             family: family,
+            shellColor: family == .playStation ? playStationColor : xboxColor,
             pressedControls: appModel.controllerSnapshot.pressedControls,
             analogValues: appModel.controllerSnapshot.analogValues,
             overriddenControls: Set(overrideControls),

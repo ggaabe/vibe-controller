@@ -25,9 +25,7 @@ final class ControllerArtworkTests: XCTestCase {
     func testEverySupportedButtonHasExactlyOneHitRegion() {
         for family in [ControllerFamily.xbox, .playStation] {
             let controls = ControllerArtwork.controls(for: family).map(\.control)
-            let expected = ControllerControlID.mappingControls.filter {
-                family == .playStation || $0 != .touchpadButton
-            }
+            let expected = ControllerControlID.mappingControls(for: family)
             XCTAssertEqual(Set(controls), Set(expected))
             XCTAssertEqual(controls.count, Set(controls).count)
         }

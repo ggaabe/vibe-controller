@@ -5,20 +5,59 @@ import SwiftUI
 enum ControllerArtwork {
     static let size = CGSize(width: 1000, height: 660)
 
-    @MainActor private static let images: [ControllerFamily: NSImage] = {
-        var images: [ControllerFamily: NSImage] = [:]
+    @MainActor private static let sources: [ControllerFamily: Data] = {
+        var sources: [ControllerFamily: Data] = [:]
         for family in [ControllerFamily.xbox, .playStation] {
             let name = family == .playStation ? "playstation" : "xbox"
             let url =
                 Bundle.main.url(forResource: name, withExtension: "svg", subdirectory: "Controllers")
                 ?? Bundle.module.url(forResource: name, withExtension: "svg", subdirectory: "Controllers")
-            if let url, let image = NSImage(contentsOf: url) { images[family] = image }
+            if let url { sources[family] = try? Data(contentsOf: url) }
         }
-        return images
+        return sources
     }()
 
-    @MainActor static func image(for family: ControllerFamily) -> NSImage? {
-        images[family == .playStation ? .playStation : .xbox]
+    private struct ImageKey: Hashable {
+        let family: ControllerFamily
+        let color: ControllerShellColor
+    }
+
+    // At most two layouts × six colors. Never parse SVGs on every input sample.
+    @MainActor private static var images: [ImageKey: NSImage] = [:]
+
+    @MainActor static func image(
+        for family: ControllerFamily, shellColor: ControllerShellColor = .original
+    ) -> NSImage? {
+        let key = ImageKey(family: family == .playStation ? .playStation : .xbox, color: shellColor)
+        if let cached = images[key] { return cached }
+        guard let data = try? svgData(for: key.family, shellColor: shellColor),
+              let image = NSImage(data: data) else { return nil }
+        images[key] = image
+        return image
+    }
+
+    @MainActor static func svgData(
+        for family: ControllerFamily, shellColor: ControllerShellColor
+    ) throws -> Data? {
+        let family: ControllerFamily = family == .playStation ? .playStation : .xbox
+        guard let source = sources[family] else { return nil }
+        guard shellColor != .original else { return source }
+        let document = try XMLDocument(data: source)
+        let palette = shellColor.palette(for: family)
+        let gradient = family == .playStation ? "white" : "shell"
+        let stops = try document.nodes(forXPath: "//*[@id='\(gradient)']/*[@stop-color]")
+        for (stop, color) in zip(stops, palette) {
+            (stop as? XMLElement)?.attribute(forName: "stop-color")?.stringValue = color
+        }
+        let edges = try document.nodes(forXPath: "//*[@id='edge']/*[@stop-color]")
+        for (stop, color) in zip(edges, palette) {
+            (stop as? XMLElement)?.attribute(forName: "stop-color")?.stringValue = color
+        }
+        for node in try document.nodes(forXPath: "//*[@id='shell-rim' or @id='grip-shade']") {
+            (node as? XMLElement)?.attribute(forName: "fill")?.stringValue = palette[2]
+        }
+        // Buttons, sticks, trigger materials, lighting and geometry are untouched.
+        return document.xmlData
     }
 
     static func controls(for family: ControllerFamily) -> [HardwareControlRegion] {
@@ -50,7 +89,13 @@ enum ControllerArtwork {
             .init(.dpadLeft, dx - 36, dy, 35, 28, radius: 8),
             .init(.dpadRight, dx + 36, dy, 35, 28, radius: 8),
         ]
-        if ps { controls.append(.init(.touchpadButton, 500, 241, 230, 104, radius: 18)) }
+        if ps {
+            controls.append(.init(.touchpadButton, 500, 241, 230, 104, radius: 18))
+        } else {
+            // Larger than the engraved icon, but clear of View and Menu. The
+            // annotated map also provides a full-height, 44-point Share label.
+            controls.append(.init(.share, 500, 333, 56, 48, radius: 18))
+        }
         return controls
     }
 }
@@ -75,8 +120,9 @@ struct HardwareControlRegion: Identifiable {
 
 struct ControllerArtworkView: View {
     let family: ControllerFamily
+    var shellColor: ControllerShellColor = .original
     var body: some View {
-        if let image = ControllerArtwork.image(for: family) {
+        if let image = ControllerArtwork.image(for: family, shellColor: shellColor) {
             Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
                 .accessibilityHidden(true)
         } else {
@@ -88,6 +134,7 @@ struct ControllerArtworkView: View {
 
 struct ControllerHardwareMap: View {
     let family: ControllerFamily
+    var shellColor: ControllerShellColor = .original
     let pressedControls: Set<ControllerControlID>
     var analogValues: [ControllerControlID: Double] = [:]
     var overriddenControls: Set<ControllerControlID> = []
@@ -109,7 +156,7 @@ struct ControllerHardwareMap: View {
         GeometryReader { proxy in
             let scale = proxy.size.width / ControllerArtwork.size.width
             ZStack(alignment: .topLeading) {
-                ControllerArtworkView(family: family)
+                ControllerArtworkView(family: family, shellColor: shellColor)
                     .frame(width: proxy.size.width, height: proxy.size.height)
                 stickIndicator(.left, scale: scale)
                 stickIndicator(.right, scale: scale)
