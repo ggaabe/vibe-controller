@@ -1,0 +1,30 @@
+{
+  "name": "vibe-controller-product-film",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio src/index.tsx",
+    "render": "remotion render src/index.tsx VibeController out/vibe-controller-workflow-film.mp4 --codec=h264 --crf=17 --concurrency=3 --gl=angle",
+    "score": "node score.mjs 72.2 score-workflow.wav",
+    "poster": "remotion still src/index.tsx VibeController out/poster.png --frame=650 --gl=angle",
+    "typecheck": "tsc --noEmit",
+    "test": "node test-workflow.mjs"
+  },
+  "dependencies": {
+    "@react-three/fiber": "8.18.0",
+    "@remotion/cli": "4.0.522",
+    "@remotion/gif": "^4.0.522",
+    "@remotion/google-fonts": "4.0.522",
+    "@remotion/media": "4.0.522",
+    "@remotion/three": "4.0.522",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.522",
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "@types/three": "0.170.0",
+    "typescript": "5.7.3"
+  }
+}

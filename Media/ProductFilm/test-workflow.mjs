@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import ts from 'typescript';
+const source=await readFile(new URL('./src/workflowState.ts',import.meta.url),'utf8');
+const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+const {workflowCue,dictatedText,FILM_DURATION,WORKFLOW_START,OCR_START,CHOICE_START,OUTRO_START}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
+for(const [f,button] of [[40,'A'],[82,'B'],[135,'LT'],[214,'Y'],[258,'RT'],[406,'R3'],[465,'RT'],[530,'L3'],[630,'LT'],[680,'View']])assert.ok(workflowCue(f).buttons.includes(button),`${button} highlight missing at ${f}`);
+for(const [f,button] of [[36,'X'],[120,'LT'],[236,'A'],[283,'Y']])assert.ok(workflowCue(f,true).buttons.includes(button),`${button} OCR highlight missing at ${f}`);
+assert.equal(dictatedText(270),'');
+assert.equal(dictatedText(395),'Use this screenshot. Make the card green.');
+assert.equal(dictatedText(451),'Use this screenshot. Make the card ');
+assert.equal(dictatedText(500),'Use this screenshot. Make the card blue.');
+assert.equal(workflowCue(630).key,'LT + STICK');
+assert.equal(workflowCue(680).key,'VIEW');
+assert.equal(workflowCue(190,true).key,'OCR');
+assert.equal(workflowCue(295,true).key,'Y');
+assert.ok(WORKFLOW_START<OCR_START&&OCR_START<CHOICE_START&&CHOICE_START<OUTRO_START);
+assert.equal(FILM_DURATION,2166);
+for(const ocr of [false,true])for(let f=0;f<(ocr?360:720);f++){const cue=workflowCue(f,ocr);assert.ok(cue.title&&cue.detail);assert.ok(cue.stick.every(Number.isFinite));}
+console.log('Workflow timing passed: all 9 controls, dictation/correction, OCR, copy, paste, and 2,166-frame edit.');

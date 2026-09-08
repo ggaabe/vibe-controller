@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="870" viewBox="0 0 1440 870">
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#354e86"/><stop offset=".5" stop-color="#161c42"/><stop offset="1" stop-color="#7284ab"/></linearGradient></defs>
+<rect width="1440" height="870" fill="url(#bg)"/><path d="M0 790Q380 120 900 320T1600 10" fill="none" stroke="#7089c3" stroke-width="110" opacity=".14"/>
+<rect width="1440" height="25" fill="#080c1a" opacity=".4"/><g font-family="sans-serif" fill="#f1f5ff" font-size="13"><text x="24" y="18">●  Workspace   File   Edit   View</text><text x="1300" y="18">9:41</text></g>
+<rect x="145" y="105" width="1150" height="643" rx="15" fill="#f0eee9"/><path d="M160 105H1280Q1295 105 1295 120V153H145V120Q145 105 160 105" fill="#e0ded9"/>
+<g><circle cx="169" cy="129" r="7" fill="#f47770"/><circle cx="192" cy="129" r="7" fill="#e9be55"/><circle cx="215" cy="129" r="7" fill="#69bf75"/></g>
+<rect x="468" y="118" width="500" height="23" rx="6" fill="#cecec9"/>
+<g font-family="sans-serif" fill="#26333a"><text x="221" y="224" font-size="17" letter-spacing="4">A LITTLE MORE ROOM</text><text x="220" y="301" font-size="58" font-weight="700">Make space to create.</text><text x="221" y="349" font-size="23" fill="#617078">Ideas move better when you do.</text></g>
+<rect x="220" y="393" width="580" height="260" rx="8" fill="#bbcbbc"/><circle cx="503" cy="523" r="95" fill="#e4e5c9"/><path d="M437 595L504 435L571 595Z" fill="#466651"/>
+<g fill="#c7ccc6"><rect x="844" y="407" width="332" height="14" rx="6"/><rect x="844" y="445" width="289" height="11" rx="5"/><rect x="844" y="474" width="325" height="11" rx="5"/><rect x="844" y="503" width="249" height="11" rx="5"/></g>
+<rect x="844" y="553" width="163" height="43" rx="21" fill="#263e32"/><text x="882" y="580" font-family="sans-serif" font-size="16" fill="#fff">Explore ↗</text>
+<rect x="451" y="811" width="538" height="45" rx="13" fill="#b8c5e7" opacity=".3"/>
+<g fill="#dce7fc"><rect x="470" y="819" width="28" height="28" rx="7"/><rect x="510" y="819" width="28" height="28" rx="7"/><rect x="550" y="819" width="28" height="28" rx="7"/><rect x="590" y="819" width="28" height="28" rx="7"/><rect x="630" y="819" width="28" height="28" rx="7"/><rect x="670" y="819" width="28" height="28" rx="7"/></g>
+</svg>
