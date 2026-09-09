@@ -1,0 +1,6 @@
+# Unfinished camera/screen material and local editor exports require a privacy
+# review before public distribution. Preserve them locally, outside Git.
+/exports/
+/review/
+/*.drp
+/tools/__pycache__/
