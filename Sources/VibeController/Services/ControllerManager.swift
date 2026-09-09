@@ -44,6 +44,8 @@ final class ControllerManager: ObservableObject {
     typealias RealtimeHandler = @Sendable (ControllerSnapshot) -> Void
 
     @Published private(set) var snapshot: ControllerSnapshot = .disconnected
+    let haptics = ControllerHaptics()
+    let fullUSB: FullUSBSession
 
     var onSnapshot: ((ControllerSnapshot) -> Void)?
     var onActionSnapshot: ((ControllerSnapshot) -> Void)?
@@ -70,7 +72,14 @@ final class ControllerManager: ObservableObject {
         let inputRelay = ControllerInputRelay(inputQueue: inputQueue)
         self.inputQueue = inputQueue
         self.inputRelay = inputRelay
+        fullUSB = FullUSBSession(relay: inputRelay, output: haptics.output)
         xboxUSBReader = XboxUSBControllerReader(queue: inputQueue)
+        fullUSB.onStopped = { [weak self] in
+            guard let self else { return }
+            self.refreshConnectedController()
+            // Force a fresh haptic attachment even if GC kept its old object.
+            self.haptics.attach(self.connectedController)
+        }
 
         inputRelay.setTelemetryHandler { [weak self] snapshot in
             self?.publishTelemetry(snapshot)
@@ -114,6 +123,7 @@ final class ControllerManager: ObservableObject {
         }
 
         detachCurrentController()
+        haptics.attach(candidate)
         guard let candidate else {
             inputRelay.receiveGameController(.disconnected, forceTelemetry: true)
             return

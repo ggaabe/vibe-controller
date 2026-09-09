@@ -148,6 +148,12 @@ struct MainWindowView: View {
                     CursorSettingsView()
                     Divider()
                     CompanionSettingsView()
+                    Divider()
+                    FullUSBSettingsView(session: appModel.controllerManager.fullUSB)
+                    Divider()
+                    ControllerVibrationSettingsView(
+                        haptics: appModel.controllerManager.haptics,
+                        applySuggestions: appModel.applySuggestedVibrations)
                 }
                 .padding(22)
             }

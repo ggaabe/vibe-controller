@@ -58,6 +58,7 @@ final class ControllerInputRelay: @unchecked Sendable {
     private var rawUSBName: String?
     private var rawUSBFamily: ControllerFamily = .generic
     private var latestRawUSBState: XboxUSBInputState?
+    private var fullUSBActive = false
 
     init(inputQueue: DispatchQueue) {
         self.inputQueue = inputQueue
@@ -95,7 +96,7 @@ final class ControllerInputRelay: @unchecked Sendable {
         inputQueue.async { [weak self] in
             guard let self else { return }
             self.latestGameControllerSnapshot = snapshot
-            guard !self.rawUSBConnected else { return }
+            guard !self.fullUSBActive, !self.rawUSBConnected else { return }
             self.publish(snapshot, forceTelemetry: forceTelemetry)
         }
     }
@@ -110,6 +111,7 @@ final class ControllerInputRelay: @unchecked Sendable {
             self.rawUSBConnected = isConnected
             self.rawUSBName = isConnected ? name : nil
             self.rawUSBFamily = isConnected ? family : .generic
+            guard !self.fullUSBActive else { return }
             if isConnected {
                 if let latestRawUSBState {
                     self.publish(self.rawSnapshot(from: latestRawUSBState), forceTelemetry: true)
@@ -124,9 +126,40 @@ final class ControllerInputRelay: @unchecked Sendable {
     func receiveRawUSB(_ state: XboxUSBInputState) {
         inputQueue.async { [weak self] in
             guard let self else { return }
+            guard !self.fullUSBActive else { return }
             self.latestRawUSBState = state
             self.rawUSBConnected = true
             self.publish(self.rawSnapshot(from: state))
+        }
+    }
+
+    func setFullUSBActive(_ active: Bool) {
+        inputQueue.async { [weak self] in
+            guard let self else { return }
+            self.fullUSBActive = active
+            // Never restore a cached pre-capture held button or stick. A fresh
+            // Apple HID/GC report must establish the fallback connection.
+            self.latestRawUSBState = nil
+            self.rawUSBConnected = false
+            self.latestGameControllerSnapshot = .disconnected
+            self.publish(.disconnected, forceTelemetry: true)
+        }
+    }
+
+    func clearFullUSBInput() {
+        inputQueue.async { [weak self] in self?.publish(.disconnected, forceTelemetry: true) }
+    }
+
+    func receiveFullUSB(_ state: XboxUSBInputState) {
+        inputQueue.async { [weak self] in
+            guard let self, self.fullUSBActive else { return }
+            var snapshot = self.rawSnapshot(from: state)
+            snapshot.controllerName = "Xbox Series Controller"
+            snapshot.connectionSummary = "USB • Full input"
+            snapshot.controllerFamily = .xbox
+            snapshot.batteryLevel = nil
+            snapshot.batteryStateDescription = nil
+            self.publish(snapshot)
         }
     }
 

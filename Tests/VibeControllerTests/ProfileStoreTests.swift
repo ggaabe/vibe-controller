@@ -15,6 +15,13 @@ final class ProfileStoreTests: XCTestCase {
         let document = try store.loadOrCreate()
         XCTAssertEqual(document.profiles, [snapshot])
         XCTAssertEqual(document.activeProfileId, snapshot.id)
+        XCTAssertEqual(snapshot.mappings[.home]?.vibration, .thump)
+        XCTAssertEqual(snapshot.mappings[.leftThumbstickButton]?.vibration, .softTap)
+        XCTAssertEqual(snapshot.mappings[.share]?.shortcut, ShortcutDescriptor(keyCode: 44, modifiers: []))
+        XCTAssertEqual(snapshot.modifierLayer(for: .leftShoulder)?.mappings[.share]?.shortcut,
+                       ShortcutDescriptor(keyCode: 19, modifiers: [.shift]))
+        XCTAssertEqual(snapshot.modifierLayer(for: .rightShoulder)?.mappings[.share]?.shortcut,
+                       ShortcutDescriptor(keyCode: 21, modifiers: [.shift]))
         for modifier in [ControllerControlID.leftShoulder, .rightShoulder] {
             XCTAssertEqual(
                 snapshot.effectiveMapping(for: .leftThumbstickButton, modifierControl: modifier).shortcut,

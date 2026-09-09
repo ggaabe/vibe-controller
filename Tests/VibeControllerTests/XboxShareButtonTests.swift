@@ -2,6 +2,41 @@ import XCTest
 @testable import VibeController
 
 final class XboxShareButtonTests: XCTestCase {
+    private func capturedReport(_ hex: String) throws -> [UInt8] {
+        let digits = Array(hex)
+        return try stride(from: 0, to: digits.count, by: 2).map { index in
+            try XCTUnwrap(UInt8(String(digits[index...index + 1]), radix: 16))
+        }
+    }
+
+    func testRealSeriesUSBShareAndAReportsFromExclusiveCapture() throws {
+        // Physical 045e:0b12, bcdDevice 0509, captured 2026-09-09. Unlike
+        // Apple's 19-byte HID reports, endpoint 0x82 delivers all 48 bytes.
+        let down = try capturedReport("20008e2c000000000000820062fcf1fcc9fb000000000100000000000000000000000000000000000f0de3f9cd0fe3f9")
+        let up = try capturedReport("20008f2c000000000000820062fcf1fcc9fb000000000000000000000000000000000000000000006220e5f95e23e5f9")
+        let a = try capturedReport("20009a2c10000000000082003dfdf1fcc9fb00000000000000000000000000000000000000000000c2dc33fa80df33fa")
+        let samples: [([UInt8], Set<ControllerControlID>)] = [(down, [.share]), (up, []), (a, [.buttonSouth])]
+        for stripped in [false, true] {
+            var state = XboxUSBInputState()
+            for (bytes, expected) in samples {
+                XCTAssertEqual(bytes.count, 48)
+                state = try XCTUnwrap(XboxUSBReportParser.parse(reportID: 0x20,
+                    bytes: stripped ? Array(bytes.dropFirst()) : bytes,
+                    previous: state, supportsShareButton: true))
+                XCTAssertEqual(state.pressedControls, expected)
+                XCTAssertEqual(state.analogValues[.share], expected.contains(.share) ? 1 : 0)
+            }
+        }
+    }
+
+    func testApplesTruncatedReportCannotDistinguishPhysicalSharePress() throws {
+        let down = try capturedReport("20008e2c000000000000820062fcf1fcc9fb000000000100000000000000000000000000000000000f0de3f9cd0fe3f9")
+        let state = try XCTUnwrap(XboxUSBReportParser.parse(reportID: 0x20,
+            bytes: Array(down.prefix(19)), supportsShareButton: true))
+        XCTAssertFalse(state.pressedControls.contains(.share))
+        XCTAssertEqual(state.analogValues[.share], 0)
+    }
+
     private func report(shareByte: UInt8) -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: 23)
         bytes[0] = 0x20
@@ -72,7 +107,13 @@ final class XboxShareButtonTests: XCTestCase {
     }
 
     func testExistingProfilesRemainUnassignedAndShareMappingsRoundTrip() throws {
-        let defaults = ControllerProfile.gabesDefaults
+        var defaults = ControllerProfile.gabesDefaults
+        // A legacy saved profile without Share stays unassigned; new installs
+        // now intentionally receive Gabe's saved slash/Shift-2/Shift-4 mappings.
+        defaults.mappings.removeValue(forKey: .share)
+        for index in defaults.modifierLayers.indices {
+            defaults.modifierLayers[index].mappings.removeValue(forKey: .share)
+        }
         XCTAssertEqual(defaults.effectiveMapping(for: .share, modifierControl: nil).actionType, .none)
         let oldProfile = try JSONDecoder().decode(ControllerProfile.self, from: JSONEncoder().encode(defaults))
         XCTAssertEqual(oldProfile, defaults)

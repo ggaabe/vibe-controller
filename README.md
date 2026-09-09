@@ -71,7 +71,8 @@ Use **Color** beside the layout selector to choose Original, Graphite, White, Bl
 
 - Action labels appear around the controller by default, with lines connecting them to each button. Click a label or physical button to remap it. **Show labels** remembers your preference; when labels are hidden, hover over a button to inspect its action below the map. Click the stick itself for **L3 / R3**; use the **Left Stick / Right Stick** controls below the artwork to change its cursor role.
 - Live input moves the thumbstick caps, fills and depresses triggers in proportion to their pull, and lights up pressed buttons. Short taps remain visible briefly without extending their mapped action. Feedback works with labels on or off; display interpolation does not affect the real-time cursor or HID loop.
-- **Xbox Share** (the upload-shaped button below Home) is remappable: click the icon or its **Share** label, or find it in **Bindings**. It starts with **No action**, preserving existing profiles. You can assign a shortcut, add modifier overrides, or use Share itself as a modifier. Xbox Series X|S USB input is read directly, including during Universal Control handoff; other connections use [Apple's optional Share-button input](https://developer.apple.com/documentation/gamecontroller/gcxboxgamepad/buttonshare). The app requests that macOS disable its competing capture gestures while handling the controller. Older Xbox controllers without a physical Share button cannot generate this input. PlayStation Share/Create remains the existing **Create** control.
+- **Xbox Share** (the upload-shaped button below Home) has a mapping editor: click the icon or its **Share** label, or find it in **Bindings**. Fresh installs use Gabe's saved slash shortcut; existing profiles without a Share mapping remain unassigned. You can assign a shortcut, add modifier overrides, or use Share itself as a modifier. On the tested Xbox Series X|S USB connection, Apple's normal driver truncates the report before Share, and [Apple's optional Share-button input](https://developer.apple.com/documentation/gamecontroller/gcxboxgamepad/buttonshare) does not deliver its presses. The experimental **Full USB input** option below reads the complete report instead. Older Xbox controllers without a physical Share button cannot generate this input. PlayStation Share/Create remains the existing **Create** control.
+  See [USB investigation and verification status](docs/XBOX-USB-LAB.md) for the captured evidence and current limitations.
 - Choose **Bindings** to search all buttons and assigned actions in a readable list.
 - Use **App** to edit system-wide settings or an app-specific override. Apps without an override inherit **All Apps**.
 - Select a modifier layer or hold its controller button to update the visible action labels and highlight its overrides. In the artwork-only view, modifier shortcuts appear as chips below the map.
@@ -134,6 +135,7 @@ PlayStation controllers use the same physical-position mappings: Cross/Circle/Sq
 | View | Copy | Sends `⌘C` |
 | Menu | New tab | Sends `⌘T` |
 | Home | Close tab or window | Sends `⌘W`; disable any competing Home-button action in macOS Game Controller settings |
+| Share (Xbox Series) | Type `/` | Requires a transport that exposes Share; full USB is experimental |
 
 Holding a scroll control sends one step immediately, waits the configured repeat delay (350 ms by default), then continues at the configured interval (80 ms by default). Native scrolling runs on its own input queue, including through Universal Control, and temporarily prevents App Nap while held. Releasing the button or disconnecting the controller stops the repeat without waiting for the UI. Your repeat timings and mappings are preserved.
 
@@ -164,6 +166,49 @@ Click a button, trigger, stick-click control, or D-pad direction on the controll
 - Primary/precision cursor-speed toggling
 
 Stick roles are configured separately by clicking either stick. Shortcut assignments and cursor settings are persisted automatically.
+
+### Experimental full USB input (Xbox Series)
+
+In the scrolling preferences sidebar, choose **Full USB input → Enable full USB**
+and approve macOS's administrator prompt. The app temporarily takes exclusive
+ownership of one Xbox Series USB controller (`045e:0b12`), reads full input
+including Share, and routes vibration through that same session. Your existing
+button, modifier, cursor, and app-specific mappings are retained. Native
+handoff still uses the same virtual mouse/keyboard output; nothing needs to be
+installed on the other Macs.
+
+This option is experimental and off on each launch. Other apps cannot use the
+controller while it is enabled. Keep a trackpad available when testing. Choose
+**Stop full USB** to return it to macOS; app quit, sleep, connection loss, and a
+missing app heartbeat also end the session. No persistent privileged helper is
+installed. The USB library, source, and license are bundled with the app.
+
+**Recovery caveat:** if normal USB vibration is silent after switching back,
+unplug and reconnect the controller. Driver restoration alone has not reliably
+restored physical rumble in testing. Full-session hardware verification is still
+in progress; see the [USB lab notes](docs/XBOX-USB-LAB.md).
+
+### Optional controller vibration
+
+Every button editor includes a **Vibration pattern** picker and **Test vibration** button. Choose None, Soft tap, Double tap, Thump, Left pulse, Right pulse, or Grab & release. Previewing a pattern never runs its keyboard or mouse command. Patterns are saved with the mapping, including modifier layers and app overrides; **Use Default / Use All Apps** restores the inherited action and its feedback together.
+
+The **Vibration** section in the preferences sidebar has a master **Haptic feedback** switch, strength slider, test button, and optional connection pulse. Fresh installs use Gabe's saved preferences: **enabled, 50% strength, connection pulse on**. These preferences are remembered separately on each Mac; upgrading preserves an explicit mute or other saved preference. **Use suggested patterns** applies the recommendations to the current profile and enables feedback without changing any shortcut or cursor setting:
+
+| Action | Suggested vibration |
+| --- | --- |
+| Cross Edge Left / Right | Left / Right pulse, falling back to the controller's default motors if needed |
+| Cross Edge Up / Down | Thump |
+| Engage LB or RB modifier layer | Soft tap |
+| LT drag | Grab & release: a start tap and lighter end tap |
+| B area screenshot / RT Fn dictation | Soft tap |
+| X TextSniper capture | Double tap |
+| Ordinary click, paste, typing, cursor movement, and scrolling | None |
+
+The bundled GAPE profile includes these patterns plus Gabe's custom **Home → Thump** and **L3 → Soft tap** choices. **Use suggested patterns** deliberately replaces custom feedback with the suggestions above. Existing profiles without per-button vibration settings stay silent for those buttons. Recommendations follow the configured action, so remapped buttons do not receive misleading feedback just because of their physical label. The connection pulse indicates that a haptic-capable controller connected—not that all system permissions are approved.
+
+For the tested Xbox Series X|S USB model (`045e:0b12`), the app automatically sends native motor commands through Apple's existing USB HID driver. This works without installing another driver, detaching the controller, or requesting administrator access. The direct path is selected only when exactly one matching USB controller is present. Other controller connections use Apple's Game Controller / Core Haptics API; reported API support does not guarantee physical vibration, so use **Test vibration** to verify your connection. Unsupported hardware keeps working without vibration.
+
+Vibration runs on the lead Mac independently of virtual mouse/keyboard output. Pulses are finite, run on a separate queue, and acknowledge command dispatch—not screenshot/OCR completion, active dictation, or successful arrival on another Mac. Held/repeating actions do not continuously rumble. Disabling input, disconnecting, or changing mappings cancels pending feedback. No AI-task completion or remote-app notifications are inferred from Universal Control.
 
 ### App-specific shortcuts
 
@@ -204,6 +249,8 @@ GAPE ships with the current modifier setup already configured:
 | --- | --- |
 | LB + X / Square | Type a period (`.`) |
 | LB + Y / Triangle | Type a Space |
+| LB + Share (Xbox Series) | Send Shift-2 (`@` on a US keyboard) |
+| RB + Share (Xbox Series) | Send Shift-4 (`$` on a US keyboard) |
 | RB / R1 + Y / Triangle | Send Control-V (alternate paste / app-specific command) |
 | RB / R1 + Menu / Options | Press Tab (for CLI queueing or navigation); plain Menu remains Command-T |
 | LB / L1 or RB / R1 + L3 | Press Shift + Return (insert a newline in supported apps) |
@@ -236,6 +283,12 @@ Both Macs need Accessibility and local-network permission. The Companion panel s
 - `Scripts/build_release.sh` validates the complete DMG and installer release path; public mode also signs, notarizes, and checks Gatekeeper acceptance.
 
 ## Development
+
+### Demo capture for filming
+
+Hold **Option (⌥)** while opening the **Vibe Controller** macOS app menu to reveal **Demo Capture…**. It records selected local displays and a separate timestamped controller/action log for editing product demos. Recording is explicit, local and video-only; the other Mac must be recorded separately. See the [capture guide](docs/DEMO-CAPTURE.md) and [launch demo filming script](docs/LAUNCH-DEMO-SCRIPT.md).
+
+Select both the laptop and its external monitor to create an optional **follow-cursor review movie** after recording. Separate full-resolution movies are retained. The panel shows storage usage, flags takes over 14 days old for manual review, requires 5 GB free to start and attempts to stop/save below 2 GB. It never automatically deletes your footage.
 
 Run the complete test suite with:
 

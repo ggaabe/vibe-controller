@@ -170,19 +170,37 @@ struct ControllerActionMapping: Codable, Hashable, Sendable {
     var triggerMode: TriggerMode
     var repeatDelay: Double
     var repeatInterval: Double
+    var vibration: ControllerVibration
 
     init(
         actionType: ActionType = .none,
         shortcut: ShortcutDescriptor? = nil,
         triggerMode: TriggerMode? = nil,
         repeatDelay: Double = 0.35,
-        repeatInterval: Double = 0.08
+        repeatInterval: Double = 0.08,
+        vibration: ControllerVibration = .none
     ) {
         self.actionType = actionType
         self.shortcut = shortcut
         self.triggerMode = triggerMode ?? actionType.defaultTriggerMode
         self.repeatDelay = repeatDelay
         self.repeatInterval = repeatInterval
+        self.vibration = vibration
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case actionType, shortcut, triggerMode, repeatDelay, repeatInterval, vibration
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        actionType = try container.decode(ActionType.self, forKey: .actionType)
+        shortcut = try container.decodeIfPresent(ShortcutDescriptor.self, forKey: .shortcut)
+        triggerMode = try container.decodeIfPresent(TriggerMode.self, forKey: .triggerMode) ?? actionType.defaultTriggerMode
+        repeatDelay = try container.decodeIfPresent(Double.self, forKey: .repeatDelay) ?? 0.35
+        repeatInterval = try container.decodeIfPresent(Double.self, forKey: .repeatInterval) ?? 0.08
+        // Older profiles stay silent; an unknown future pattern must not break input.
+        vibration = (try? container.decode(ControllerVibration.self, forKey: .vibration)) ?? .none
     }
 
     var summary: String {
@@ -587,7 +605,8 @@ extension ControllerProfile {
         )
     }
 
-    static let gabesDefaults = ControllerProfile(
+    static let gabesDefaults: ControllerProfile = {
+        var profile = ControllerProfile(
         id: "gabes-defaults",
         name: "GAPE",
         cursor: CursorConfiguration(
@@ -670,6 +689,11 @@ extension ControllerProfile {
                 shortcut: ShortcutDescriptor(keyCode: 13, modifiers: [.command]),
                 triggerMode: .tap
             ),
+            .share: ControllerActionMapping(
+                actionType: .keyboardShortcut,
+                shortcut: ShortcutDescriptor(keyCode: 44, modifiers: []),
+                triggerMode: .tap
+            ),
         ],
         modifierLayers: [
             ControllerModifierLayer(
@@ -693,6 +717,11 @@ extension ControllerProfile {
                     .rightShoulder: ControllerActionMapping(
                         actionType: .keyboardShortcut,
                         shortcut: .leftRightModifierChord(.command),
+                        triggerMode: .tap
+                    ),
+                    .share: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 19, modifiers: [.shift]),
                         triggerMode: .tap
                     ),
                     .dpadLeft: ControllerActionMapping(actionType: .crossEdgeLeft),
@@ -719,6 +748,11 @@ extension ControllerProfile {
                         shortcut: ShortcutDescriptor(keyCode: 36, modifiers: [.shift]),
                         triggerMode: .tap
                     ),
+                    .share: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 21, modifiers: [.shift]),
+                        triggerMode: .tap
+                    ),
                     .dpadLeft: ControllerActionMapping(actionType: .crossEdgeLeft),
                     .dpadRight: ControllerActionMapping(actionType: .crossEdgeRight),
                     .dpadUp: ControllerActionMapping(actionType: .crossEdgeUp),
@@ -728,6 +762,12 @@ extension ControllerProfile {
         ],
         applicationMappings: [ControllerProfile.codexStarterApplicationMappings]
     )
+        profile.applySuggestedVibrations()
+        // Gabe's saved choices override the optional suggestion presets.
+        profile.mappings[.home]?.vibration = .thump
+        profile.mappings[.leftThumbstickButton]?.vibration = .softTap
+        return profile
+    }()
 }
 
 extension ProfileDocument {

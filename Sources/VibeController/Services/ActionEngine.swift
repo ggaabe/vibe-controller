@@ -79,6 +79,10 @@ final class ActionEngine: @unchecked Sendable {
     private let scrollOutput: HeldScrollRepeater.Output
     private let currentTime: () -> TimeInterval
     private let shortcutOutput: (@Sendable (ShortcutDescriptor, Bool) -> Void)?
+    private let demoCaptureSink: DemoCaptureEventSink?
+    private let vibrationOutput: (@Sendable (ControllerVibration, ControllerVibration.Phase) -> Void)?
+    private let stopVibrationOutput: (@Sendable () -> Void)?
+    private var modifierVibrations: [ControllerControlID: ControllerVibration] = [:]
     private let eventSource = CGEventSource(stateID: .combinedSessionState)
     private var previousPressedControls = Set<ControllerControlID>()
     private var activeStates: [ControllerControlID: ActiveControlState] = [:]
@@ -92,11 +96,17 @@ final class ActionEngine: @unchecked Sendable {
         currentTime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         scrollOutput: HeldScrollRepeater.Output? = nil,
         shortcutOutput: (@Sendable (ShortcutDescriptor, Bool) -> Void)? = nil,
-        actionQueue: DispatchQueue? = nil
+        actionQueue: DispatchQueue? = nil,
+        demoCaptureSink: DemoCaptureEventSink? = nil,
+        vibrationOutput: (@Sendable (ControllerVibration, ControllerVibration.Phase) -> Void)? = nil,
+        stopVibrationOutput: (@Sendable () -> Void)? = nil
     ) {
         self.cursorEngine = cursorEngine
         self.currentTime = currentTime
         self.shortcutOutput = shortcutOutput
+        self.demoCaptureSink = demoCaptureSink
+        self.vibrationOutput = vibrationOutput
+        self.stopVibrationOutput = stopVibrationOutput
         self.actionQueue = actionQueue ?? DispatchQueue(
             label: "com.vibe-controller.controller-actions",
             qos: .userInteractive,
@@ -237,6 +247,11 @@ final class ActionEngine: @unchecked Sendable {
                 )
             } else {
                 armModifier(modifierControl)
+                let vibration = profile.effectiveMapping(
+                    for: modifierControl, modifierControl: nil,
+                    applicationBundleIdentifier: applicationBundleIdentifier).vibration
+                modifierVibrations[modifierControl] = vibration
+                emitVibration(vibration, phase: .press)
             }
             handledPresses.insert(modifierControl)
         }
@@ -286,8 +301,10 @@ final class ActionEngine: @unchecked Sendable {
     private func resetActionState() {
         heldScrollRepeater.stopAll()
         for control in Array(activeStates.keys) {
-            finishActiveState(for: control)
+            finishActiveState(for: control, withFeedback: false)
         }
+        stopVibrationOutput?()
+        modifierVibrations.removeAll()
         armedModifierControls.removeAll()
         consumedModifierControls.removeAll()
         modifierPressOrder.removeAll()
@@ -376,6 +393,9 @@ final class ActionEngine: @unchecked Sendable {
     ) {
         armedModifierControls.remove(control)
         modifierPressOrder.removeAll(where: { $0 == control })
+        if let vibration = modifierVibrations.removeValue(forKey: control) {
+            emitVibration(vibration, phase: .release)
+        }
 
         let wasConsumed = consumedModifierControls.remove(control) != nil
         if wasConsumed {
@@ -398,11 +418,13 @@ final class ActionEngine: @unchecked Sendable {
                 for: control,
                 modifierControl: nil,
                 applicationBundleIdentifier: applicationBundleIdentifier
-            )
+            ),
+            control: control
         )
     }
 
-    private func fireModifierTapAction(_ mapping: ControllerActionMapping) {
+    private func fireModifierTapAction(_ mapping: ControllerActionMapping, control: ControllerControlID) {
+        demoCaptureSink?.action(mapping, control: control, modifier: nil, phase: "modifier-release")
         if mapping.actionType == .leftMouseHold {
             postMouseClick(button: .left)
             return
@@ -415,6 +437,9 @@ final class ActionEngine: @unchecked Sendable {
         mapping: ControllerActionMapping,
         sourceModifier: ControllerControlID?
     ) {
+        demoCaptureSink?.action(mapping, control: control, modifier: sourceModifier)
+        let wasToggledOn = activeStates[control]?.isToggledOn == true
+        let previousVibration = activeStates[control]?.releaseVibration ?? .none
         switch mapping.triggerMode {
         case .tap:
             fireDiscreteAction(mapping)
@@ -437,6 +462,17 @@ final class ActionEngine: @unchecked Sendable {
                 sourceModifier: sourceModifier
             )
         }
+        if mapping.triggerMode == .toggle && wasToggledOn {
+            emitVibration(previousVibration, phase: .release)
+        } else {
+            activeStates[control]?.releaseVibration = mapping.vibration
+            emitVibration(mapping.vibration, phase: .press)
+        }
+    }
+
+    private func emitVibration(_ pattern: ControllerVibration, phase: ControllerVibration.Phase) {
+        guard !pattern.pulses(for: phase).isEmpty else { return }
+        vibrationOutput?(pattern, phase)
     }
 
     private func handleRelease(for control: ControllerControlID) {
@@ -507,7 +543,7 @@ final class ActionEngine: @unchecked Sendable {
         }
     }
 
-    private func finishActiveState(for control: ControllerControlID) {
+    private func finishActiveState(for control: ControllerControlID, withFeedback: Bool = true) {
         heldScrollRepeater.stop(control)
         guard let state = activeStates[control] else { return }
         state.timer?.cancel()
@@ -522,6 +558,7 @@ final class ActionEngine: @unchecked Sendable {
             }
         }
         activeStates[control] = nil
+        if withFeedback { emitVibration(state.releaseVibration, phase: .release) }
     }
 
     private func beginRepeatingAction(
@@ -1045,6 +1082,7 @@ private extension ShortcutDescriptor {
 }
 
 private struct ActiveControlState {
+    var releaseVibration: ControllerVibration = .none
     var triggerMode: TriggerMode
     var sourceModifier: ControllerControlID?
     var shortcut: ShortcutDescriptor?

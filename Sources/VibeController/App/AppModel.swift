@@ -159,6 +159,7 @@ final class AppModel: ObservableObject {
     let controllerManager: ControllerManager
     let permissionManager: PermissionManager
     let companionManager: CompanionManager
+    let demoCapture = DemoCaptureCoordinator()
 
     private let profileStore: ProfileStore
     private let cursorEngine: CursorEngine
@@ -189,7 +190,11 @@ final class AppModel: ObservableObject {
         self.permissionManager = permissionManager
         self.companionManager = companionManager
         self.cursorEngine = cursorEngine
-        self.actionEngine = ActionEngine(cursorEngine: cursorEngine)
+        let hapticOutput = controllerManager.haptics.output
+        self.actionEngine = ActionEngine(
+            cursorEngine: cursorEngine, demoCaptureSink: demoCapture.sink,
+            vibrationOutput: { pattern, phase in hapticOutput.play(pattern, phase: phase) },
+            stopVibrationOutput: { hapticOutput.stop() })
         self.appUpdateService = appUpdateService
 
         let loadedDocument = (try? profileStore.loadOrCreate()) ?? ProfileDocument.defaultDocument
@@ -247,9 +252,11 @@ final class AppModel: ObservableObject {
         controllerManager.onRealtimeActionSnapshot = { [weak actionEngine] snapshot in
             actionEngine?.receiveRealtimeActions(snapshot) ?? false
         }
-        controllerManager.onRealtimeSnapshot = { [weak cursorEngine, weak actionEngine] snapshot in
+        let demoCaptureSink = demoCapture.sink
+        controllerManager.onRealtimeSnapshot = { [weak cursorEngine, weak actionEngine, demoCaptureSink] snapshot in
             cursorEngine?.updateInput(snapshot: snapshot)
             actionEngine?.updateRealtimeInput(snapshot: snapshot)
+            demoCaptureSink.input(snapshot)
         }
         companionManager.onMessage = { [weak self] message in
             self?.handleCompanionMessage(message)
@@ -1103,7 +1110,7 @@ final class AppModel: ObservableObject {
             }
             switch layer {
             case .base:
-                if mapping.actionType == .none {
+                if mapping.actionType == .none && mapping.vibration == .none {
                     profile.mappings.removeValue(forKey: control)
                 } else {
                     profile.mappings[control] = mapping
@@ -1342,6 +1349,11 @@ final class AppModel: ObservableObject {
         document.activeProfileId = activeProfileID
         persistDocument()
         syncCursorConfiguration()
+    }
+
+    func applySuggestedVibrations() {
+        updateActiveProfile { $0.applySuggestedVibrations() }
+        controllerManager.haptics.isEnabled = true
     }
 
     private func addApplicationMappings(

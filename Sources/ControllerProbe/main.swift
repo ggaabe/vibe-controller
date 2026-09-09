@@ -5,6 +5,16 @@ import Darwin
 
 setbuf(stdout, nil)
 
+if CommandLine.arguments.contains("--test-haptics") {
+    runHapticsProbe()
+    exit(0)
+}
+
+if CommandLine.arguments.contains("--test-usb-rumble") {
+    runUSBHapticsProbe()
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--raw-hid") {
     runRawHIDProbe()
     exit(0)
@@ -44,10 +54,14 @@ guard let controller = GCController.current ?? controllers.first(where: { $0.ext
     exit(0)
 }
 
-print("Listening to \(controller.vendorName ?? "Unknown") for 10 seconds. Move sticks or press buttons.")
+let listeningDuration = probeDuration(default: 10)
+print("Listening to \(controller.vendorName ?? "Unknown") for \(Int(listeningDuration)) seconds. Move sticks or press buttons.")
 if let share = (gamepad as? GCXboxGamepad)?.buttonShare {
     share.preferredSystemGestureState = .disabled
     print("Xbox Share button is exposed by GameController.")
+    share.pressedChangedHandler = { _, value, pressed in
+        print("SHARE edge time=\(ProcessInfo.processInfo.systemUptime) pressed=\(pressed) value=\(value)")
+    }
 }
 
 gamepad.valueChangedHandler = { _, element in
@@ -84,18 +98,21 @@ gamepad.valueChangedHandler = { _, element in
     )
 }
 
-RunLoop.main.run(until: Date().addingTimeInterval(10))
+RunLoop.main.run(until: Date().addingTimeInterval(listeningDuration))
+print("GameController capture complete. Share pressed=\((gamepad as? GCXboxGamepad)?.buttonShare?.isPressed ?? false)")
 
-private func runRawHIDProbe() {
+private func probeDuration(default fallback: TimeInterval) -> TimeInterval {
     let arguments = CommandLine.arguments
-    let duration: TimeInterval
     if let index = arguments.firstIndex(of: "--duration"),
        arguments.indices.contains(index + 1),
        let requested = Double(arguments[index + 1]), requested.isFinite {
-        duration = min(300, max(1, requested))
-    } else {
-        duration = 15
+        return min(300, max(1, requested))
     }
+    return fallback
+}
+
+private func runRawHIDProbe() {
+    let duration = probeDuration(default: 15)
     let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
     let matching: [String: Any] = [
         kIOHIDDeviceUsagePageKey: kHIDPage_GenericDesktop,
@@ -115,7 +132,7 @@ private func runRawHIDProbe() {
             64,
             { _, result, _, reportType, reportID, report, reportLength in
                 let hex = (0..<reportLength).map { String(format: "%02x", report[$0]) }.joined(separator: " ")
-                print("Raw HID report type=\(reportType.rawValue) id=\(reportID) result=\(result) bytes=[\(hex)]")
+                print("Raw HID report time=\(ProcessInfo.processInfo.systemUptime) type=\(reportType.rawValue) id=\(reportID) length=\(reportLength) result=\(result) bytes=[\(hex)]")
             },
             nil
         )
@@ -148,6 +165,7 @@ private func runRawHIDProbe() {
     print("Listening to gamepad HID values for \(Int(duration)) seconds.")
     RunLoop.main.run(until: Date().addingTimeInterval(duration))
     IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+    print("Raw HID capture complete.")
 }
 
 private func integerProperty(_ key: String, device: IOHIDDevice) -> Int {

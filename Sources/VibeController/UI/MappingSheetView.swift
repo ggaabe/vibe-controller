@@ -197,6 +197,8 @@ struct MappingSheetView: View {
                         formatter: { String(format: "%.2fs", $0) }
                     )
                 }
+
+                MappingVibrationEditor(pattern: $mapping.vibration, haptics: appModel.controllerManager.haptics)
             }
             .formStyle(.grouped)
 
