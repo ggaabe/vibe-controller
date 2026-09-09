@@ -130,13 +130,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          notes=(--generate-notes)
+          if [[ -f "docs/releases/$GITHUB_REF_NAME.md" ]]; then
+            notes=(--notes-file "docs/releases/$GITHUB_REF_NAME.md")
+          fi
           gh release create "$GITHUB_REF_NAME" \
             "dist/release/Vibe-Controller-$VIBE_CONTROLLER_VERSION-arm64.dmg" \
             "dist/release/VibeController-VirtualHardwareSupport-$VIBE_CONTROLLER_VERSION-arm64.pkg" \
             "dist/release/SHA256SUMS.txt" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --generate-notes \
+            "${notes[@]}" \
             --title "Vibe Controller $VIBE_CONTROLLER_VERSION"
 
       - name: Remove temporary signing credentials
