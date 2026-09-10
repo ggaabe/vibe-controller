@@ -608,7 +608,7 @@ extension ControllerProfile {
     static let gabesDefaults: ControllerProfile = {
         var profile = ControllerProfile(
         id: "gabes-defaults",
-        name: "GAPE",
+        name: "Gabe's Defaults",
         cursor: CursorConfiguration(
             primaryStick: .left,
             precisionStick: .right,

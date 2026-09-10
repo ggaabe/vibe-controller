@@ -51,7 +51,7 @@ final class ProfileStoreTests: XCTestCase {
         let document = try store.loadOrCreate()
 
         XCTAssertEqual(document.version, 5)
-        XCTAssertEqual(document.profiles.first?.name, "GAPE")
+        XCTAssertEqual(document.profiles.first?.name, "Gabe's Defaults")
         XCTAssertEqual(document.activeProfileId, "gabes-defaults")
         XCTAssertEqual(document.profiles.first?.mappings[.buttonWest]?.shortcut?.displayString, "⇧⌘2")
         XCTAssertEqual(document.profiles.first?.mappings[.buttonEast]?.shortcut?.displayString, "^⇧⌘4")
