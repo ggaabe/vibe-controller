@@ -63,6 +63,10 @@ struct MappingSheetView: View {
                 .foregroundStyle(.secondary)
 
             Form {
+                if ShareButtonSetupPolicy.involvesShare(control: control, layer: layer) {
+                    ShareButtonSetupView(snapshot: appModel.controllerSnapshot,
+                        session: appModel.controllerManager.fullUSB, promptOnAppear: true)
+                }
                 Picker("Action type", selection: $mapping.actionType) {
                     ForEach(ActionType.allCases) { action in
                         Text(action.displayName).tag(action)

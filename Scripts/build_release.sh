@@ -149,6 +149,12 @@ VIBE_CONTROLLER_SUPPORT_INSTALLER_PATH="$SUPPORT_INSTALLER" \
 VIBE_CONTROLLER_REQUIRE_DISTRIBUTION_SIGNING="$REQUIRE_DISTRIBUTION_SIGNING" \
   "$ROOT_DIR/Scripts/package_app.sh"
 
+if [[ "$RELEASE_MODE" == "development" ]]; then
+  echo "Testing experimental USB session lifecycle without hardware..."
+  bash "$ROOT_DIR/Scripts/test_xbox_usb_session.sh"
+fi
+bash "$ROOT_DIR/Scripts/verify_full_usb_availability.sh" "$APP_PATH"
+
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")" == "$VERSION" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Contents/Info.plist")" == "$BUILD_NUMBER" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")" == "$BUNDLE_IDENTIFIER" ]]

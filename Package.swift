@@ -17,7 +17,13 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "VibeController",
+            dependencies: ["FullUSBServiceClient"],
             resources: [.copy("Resources/Controllers")]
+        ),
+        .target(
+            name: "FullUSBServiceClient",
+            cSettings: [.unsafeFlags(["-fobjc-arc"])],
+            linkerSettings: [.linkedFramework("Foundation"), .linkedFramework("Security")]
         ),
         .executableTarget(
             name: "ControllerProbe"

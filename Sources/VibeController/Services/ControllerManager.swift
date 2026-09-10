@@ -12,6 +12,7 @@ struct ControllerSnapshot: Equatable, Sendable {
     var controllerName: String?
     var connectionSummary: String?
     var controllerFamily: ControllerFamily = .generic
+    var shareRequiresFullUSB = false
     var batteryLevel: Float?
     var batteryStateDescription: String?
     var pressedControls: Set<ControllerControlID>

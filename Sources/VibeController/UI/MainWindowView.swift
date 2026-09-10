@@ -149,8 +149,10 @@ struct MainWindowView: View {
                     Divider()
                     CompanionSettingsView()
                     Divider()
-                    FullUSBSettingsView(session: appModel.controllerManager.fullUSB)
-                    Divider()
+                    if appModel.controllerManager.fullUSB.isAvailable {
+                        FullUSBSettingsView(session: appModel.controllerManager.fullUSB)
+                        Divider()
+                    }
                     ControllerVibrationSettingsView(
                         haptics: appModel.controllerManager.haptics,
                         applySuggestions: appModel.applySuggestedVibrations)

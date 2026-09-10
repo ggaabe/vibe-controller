@@ -14,6 +14,7 @@ extension ControllerSnapshot {
             controllerName == other.controllerName &&
             connectionSummary == other.connectionSummary &&
             controllerFamily == other.controllerFamily &&
+            shareRequiresFullUSB == other.shareRequiresFullUSB &&
             batteryLevel == other.batteryLevel &&
             batteryStateDescription == other.batteryStateDescription &&
             pressedControls == other.pressedControls &&
@@ -173,6 +174,7 @@ final class ControllerInputRelay: @unchecked Sendable {
             controllerFamily: state.controllerFamily == .generic
                 ? rawUSBFamily
                 : state.controllerFamily,
+            shareRequiresFullUSB: state.shareRequiresFullUSB,
             batteryLevel: latestGameControllerSnapshot.batteryLevel,
             batteryStateDescription: latestGameControllerSnapshot.batteryStateDescription,
             pressedControls: state.pressedControls,

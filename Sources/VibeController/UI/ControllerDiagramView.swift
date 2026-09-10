@@ -48,6 +48,11 @@ struct ControllerDiagramView: View {
             .padding(.bottom, 22)
             applicationScopeToolbar
             layerToolbar.padding(.top, 8).padding(.bottom, 14)
+            if family == .xbox {
+                ShareButtonSetupView(snapshot: appModel.controllerSnapshot,
+                    session: appModel.controllerManager.fullUSB)
+                    .padding(.bottom, 14)
+            }
             Group {
                 if showsList {
                     bindingList

@@ -1,11 +1,7 @@
-// Session-scoped, signed Xbox USB input + rumble helper. No installation,
-// arbitrary USB commands, network listener, firmware writes, or auto-detach.
-#include <CoreFoundation/CoreFoundation.h>
-#include <Security/Security.h>
+// Session worker inside the signed, approved USB service. Never captures until
+// the authenticated broker supplies a private session fd. No auto-detach.
 #include <libusb.h>
 #include <sys/socket.h>
-#include <sys/un.h>
-#include <sys/ucred.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -15,43 +11,14 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <stdatomic.h>
+#include <poll.h>
 
-static volatile sig_atomic_t stopping;
-static void stop_requested(int sig) { (void)sig; stopping = 1; }
+static atomic_bool stopping;
+void vibe_usb_session_request_stop(void) { atomic_store(&stopping, true); }
 static double monotime(void) {
     struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
     return t.tv_sec + t.tv_nsec / 1e9;
-}
-
-// Authenticate the actual connected socket peer, never an argv-supplied PID.
-static bool authorized_peer(int fd) {
-    pid_t pid = 0; socklen_t size = sizeof(pid);
-    if (getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) || pid <= 1) return false;
-    CFNumberRef number = CFNumberCreate(NULL, kCFNumberIntType, &pid);
-    const void *keys[] = {kSecGuestAttributePid}, *values[] = {number};
-    CFDictionaryRef attributes = CFDictionaryCreate(NULL, keys, values, 1,
-        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    SecCodeRef peer = NULL, self = NULL;
-    CFDictionaryRef peer_info = NULL, self_info = NULL;
-    bool ok = false;
-    if (SecCodeCopyGuestWithAttributes(NULL, attributes, kSecCSDefaultFlags, &peer) ||
-        SecCodeCheckValidity(peer, kSecCSStrictValidate, NULL) ||
-        SecCodeCopySelf(kSecCSDefaultFlags, &self) ||
-        SecCodeCopySigningInformation(peer, kSecCSSigningInformation, &peer_info) ||
-        SecCodeCopySigningInformation(self, kSecCSSigningInformation, &self_info)) goto done;
-    CFStringRef id = CFDictionaryGetValue(peer_info, kSecCodeInfoIdentifier);
-    CFStringRef team = CFDictionaryGetValue(peer_info, kSecCodeInfoTeamIdentifier);
-    CFStringRef own_team = CFDictionaryGetValue(self_info, kSecCodeInfoTeamIdentifier);
-    ok = id && team && own_team && CFEqual(team, own_team) &&
-        (CFEqual(id, CFSTR("com.vibe-controller.app")) ||
-         CFEqual(id, CFSTR("com.vibe-controller.app.dev")));
-done:
-    if (peer) CFRelease(peer);
-    if (self) CFRelease(self);
-    if (peer_info) CFRelease(peer_info);
-    if (self_info) CFRelease(self_info);
-    CFRelease(attributes); CFRelease(number);
-    return ok;
 }
 
 // Fixed frames: kind, payload length, six reserved zeros, 64-byte payload.
@@ -65,6 +32,11 @@ static bool frame(int fd, uint8_t kind, const void *payload, size_t length) {
 static void message(int fd, uint8_t kind, const char *text) {
     frame(fd, kind, text, strnlen(text, 64));
 }
+static void usb_error(int fd, const char *stage, int result) {
+    char text[65];
+    snprintf(text, sizeof(text), "%s: %s (%d)", stage, libusb_error_name(result), result);
+    message(fd, 3, text);
+}
 static bool usb_write(libusb_device_handle *handle, uint8_t *bytes, int count) {
     int sent = 0;
     return libusb_interrupt_transfer(handle, 0x02, bytes, count, &sent, 100) == 0 && sent == count;
@@ -76,23 +48,23 @@ static bool rumble(libusb_device_handle *handle, uint8_t *sequence, uint8_t left
     return usb_write(handle, bytes, sizeof(bytes));
 }
 
-int main(int argc, char **argv) {
-    if (argc != 3 || strcmp(argv[1], "--socket") || geteuid() != 0) {
-        fputs("Requires an authorized Vibe Controller USB session.\n", stderr); return 2;
+int vibe_usb_run_session(int fd) {
+    if (geteuid() != 0 || atomic_load(&stopping)) { close(fd); return 2; }
+    // Require the client to accept the returned fd before touching hardware.
+    // A cancelled/timed-out XPC request must never start a USB capture later.
+    uint8_t hello[8] = {0}; size_t hello_size = 0;
+    double hello_deadline = monotime() + 3;
+    while (hello_size < sizeof(hello) && monotime() < hello_deadline && !atomic_load(&stopping)) {
+        struct pollfd p = {.fd = fd, .events = POLLIN};
+        if (poll(&p, 1, 100) <= 0) continue;
+        ssize_t n = recv(fd, hello + hello_size, sizeof(hello) - hello_size, 0);
+        if (n <= 0) { close(fd); return 2; }
+        hello_size += (size_t)n;
     }
-    struct sockaddr_un address = {.sun_family = AF_UNIX};
-    if (strlen(argv[2]) >= sizeof(address.sun_path)) return 2;
-    strlcpy(address.sun_path, argv[2], sizeof(address.sun_path));
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0), one = 1;
-    if (fd < 0) return 3;
-    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
-    if (connect(fd, (struct sockaddr *)&address, sizeof(address)) || !authorized_peer(fd)) {
-        close(fd); fputs("Unauthorized socket peer. No controller changed.\n", stderr); return 3;
+    static const uint8_t heartbeat_command[8] = {0};
+    if (hello_size != 8 || memcmp(hello, heartbeat_command, 8) || atomic_load(&stopping)) {
+        close(fd); return 2;
     }
-    fcntl(fd, F_SETFL, O_NONBLOCK);
-    struct sigaction action = {.sa_handler = stop_requested};
-    sigaction(SIGINT, &action, NULL); sigaction(SIGTERM, &action, NULL);
-
     libusb_context *context = NULL; libusb_device **devices = NULL;
     libusb_device_handle *handle = NULL;
     bool captured = false, claimed = false;
@@ -126,16 +98,22 @@ int main(int argc, char **argv) {
         libusb_free_config_descriptor(config);
     }
     if (!input || !output) { message(fd, 3, "Unsupported Xbox USB interface. No controller changed."); goto cleanup; }
-    if (libusb_open(target, &handle) || libusb_kernel_driver_active(handle, 0) != 1) {
-        message(fd, 3, "Controller unavailable. Reconnect it, then try again."); goto cleanup;
+    result = libusb_open(target, &handle);
+    if (result) { usb_error(fd, "USB open failed", result); goto cleanup; }
+    result = libusb_kernel_driver_active(handle, 0);
+    if (result != 1) {
+        if (result < 0) usb_error(fd, "USB driver lookup failed", result);
+        else message(fd, 3, "Apple USB driver is not attached. Reconnect the controller.");
+        goto cleanup;
     }
-    if (libusb_detach_kernel_driver(handle, 0)) {
-        message(fd, 3, "USB capture failed. Reconnect the controller and retry."); goto cleanup;
-    }
+    uint8_t pending;
+    if (atomic_load(&stopping) || recv(fd, &pending, 1, MSG_PEEK | MSG_DONTWAIT) == 0) goto cleanup;
+    result = libusb_detach_kernel_driver(handle, 0);
+    if (result) { usb_error(fd, "USB capture failed", result); goto cleanup; }
     captured = true;
-    if (libusb_claim_interface(handle, 0)) {
-        message(fd, 3, "Could not claim Xbox USB input."); goto cleanup;
-    }
+    if (atomic_load(&stopping)) goto cleanup;
+    result = libusb_claim_interface(handle, 0);
+    if (result) { usb_error(fd, "USB claim failed", result); goto cleanup; }
     claimed = true;
     uint8_t wake[] = {5, 0x20, 1, 1, 0};
     if (!usb_write(handle, wake, sizeof(wake))) {
@@ -145,7 +123,7 @@ int main(int argc, char **argv) {
     double heartbeat = monotime(), last_status = heartbeat, rate_window = heartbeat;
     unsigned commands = 0;
     uint8_t command[8]; size_t command_length = 0;
-    while (!stopping && monotime() - heartbeat < 3) {
+    while (!atomic_load(&stopping) && monotime() - heartbeat < 3) {
         if (monotime() - rate_window >= 1) { commands = 0; rate_window = monotime(); }
         // Only heartbeat, bounded rumble, and stop are accepted. Never forward
         // client-supplied native opcodes to the device.

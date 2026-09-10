@@ -52,6 +52,24 @@ final class FullUSBInputPriorityTests: XCTestCase {
         var snapshots: [ControllerSnapshot] { lock.withLock { values } }
     }
 
+    func testShareRequirementReachesTheUIAndClearsWithFullReports() {
+        let queue = DispatchQueue(label: "test.share-setup-transport")
+        let relay = ControllerInputRelay(inputQueue: queue)
+        let recorded = Recorder()
+        relay.setRealtimeHandler { recorded.append($0) }
+        relay.receiveRawUSB(XboxUSBInputState(shareRequiresFullUSB: true))
+        queue.sync {}
+        XCTAssertTrue(recorded.snapshots.last!.shareRequiresFullUSB)
+        relay.receiveRawUSB(XboxUSBInputState()) // Same buttons, complete report.
+        queue.sync {}
+        XCTAssertFalse(recorded.snapshots.last!.shareRequiresFullUSB)
+        XCTAssertEqual(recorded.snapshots.count, 2)
+        relay.setFullUSBActive(true)
+        relay.receiveFullUSB(XboxUSBInputState())
+        queue.sync {}
+        XCTAssertFalse(recorded.snapshots.last!.shareRequiresFullUSB)
+    }
+
     func testLateAppleCallbacksCannotOverrideFullUSBShareOrHeldInputs() {
         let queue = DispatchQueue(label: "test.full-usb-priority")
         let relay = ControllerInputRelay(inputQueue: queue)

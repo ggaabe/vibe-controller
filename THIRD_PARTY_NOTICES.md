@@ -12,7 +12,7 @@ notarization before including it in the local support installer.
 
 ## libusb
 
-The optional Full USB input session bundles an unmodified dynamic library from
+Development builds with the experimental Full USB input session bundle an unmodified dynamic library from
 [libusb 1.0.30](https://github.com/libusb/libusb/releases/tag/v1.0.30), copyright
 the libusb contributors, under the GNU Lesser General Public License 2.1 or later.
 The license is included in the app at `Contents/Resources/Licenses/libusb-LGPL-2.1.txt`.
@@ -24,3 +24,6 @@ incorporated into Vibe Controller. You may modify/replace and re-sign this local
 build for your own use; reverse engineering to debug modifications to this
 library is permitted under its license. Users do not need Homebrew or libusb
 installed separately.
+
+Public release builds omit the Full USB helper and libusb library/source bundle.
+Their Universal Control support package is separate and remains included.

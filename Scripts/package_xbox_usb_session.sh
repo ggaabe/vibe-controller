@@ -3,6 +3,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${1:?Usage: package_xbox_usb_session.sh staged.app}"
 IDENTITY="${VIBE_CONTROLLER_SIGNING_IDENTITY:?Missing signing identity}"
+APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")"
+if [[ "$APP_ID" != com.vibe-controller.app.dev || "${VIBE_CONTROLLER_REQUIRE_DISTRIBUTION_SIGNING:-0}" == 1 ]]; then
+  echo "Experimental Full USB may only be packaged in Vibe Controller Dev."; exit 1
+fi
+SERVICE_ID="$APP_ID.usb-service"
 # Build the pinned source for our minimum OS instead of shipping a Homebrew
 # bottle, which can require the builder's newer macOS version at runtime.
 CACHE="$ROOT_DIR/.build/usb-dependency"
@@ -37,17 +42,29 @@ install -m 755 "$PREFIX/lib/libusb-1.0.0.dylib" "$HELPERS/libusb-1.0.0.dylib"
 install -m 644 "$SOURCE/COPYING" "$LICENSES/libusb-LGPL-2.1.txt"
 # Include corresponding library source, not just an external download offer.
 install -m 644 "$ARCHIVE" "$LICENSES/libusb-1.0.30-source.tar.bz2"
-clang -std=c11 -Wall -Wextra -Werror -O2 -arch arm64 -mmacosx-version-min=14.0 \
-  -I"$PREFIX/include/libusb-1.0" "$ROOT_DIR/Scripts/xbox_usb_session.c" \
-  -L"$PREFIX/lib" -lusb-1.0 -framework Security -framework CoreFoundation \
-  -o "$HELPERS/VibeXboxUSBSession"
+clang -std=c11 -fblocks -Wall -Wextra -Werror -O2 -arch arm64 -mmacosx-version-min=14.0 \
+  -DVIBE_USB_APP_ID="\"$APP_ID\"" \
+  -I"$PREFIX/include/libusb-1.0" "$ROOT_DIR/Scripts/xbox_usb_session.c" "$ROOT_DIR/Scripts/xbox_usb_service.c" \
+  -L"$PREFIX/lib" -lusb-1.0 -framework Security -framework CoreFoundation -framework SystemConfiguration \
+  -o "$HELPERS/VibeUSBService"
 LIBRARY_ID="$(otool -D "$PREFIX/lib/libusb-1.0.0.dylib" | sed -n '2p')"
-install_name_tool -change "$LIBRARY_ID" '@loader_path/libusb-1.0.0.dylib' "$HELPERS/VibeXboxUSBSession"
+install_name_tool -change "$LIBRARY_ID" '@loader_path/libusb-1.0.0.dylib' "$HELPERS/VibeUSBService"
 install_name_tool -id '@loader_path/libusb-1.0.0.dylib' "$HELPERS/libusb-1.0.0.dylib"
+DAEMONS="$APP/Contents/Library/LaunchDaemons"
+mkdir -p "$DAEMONS"
+PLIST="$DAEMONS/$SERVICE_ID.plist"
+plutil -create xml1 "$PLIST"
+plutil -insert Label -string "$SERVICE_ID" "$PLIST"
+plutil -insert BundleProgram -string Contents/Helpers/VibeUSBService "$PLIST"
+plutil -insert MachServices -xml "<dict><key>$SERVICE_ID</key><true/></dict>" "$PLIST"
+plutil -insert AssociatedBundleIdentifiers -xml "<array><string>$APP_ID</string></array>" "$PLIST"
+plutil -insert ProcessType -string Interactive "$PLIST"
+plutil -insert ExitTimeOut -integer 10 "$PLIST"
+plutil -lint "$PLIST"
 SIGN=(--force --sign "$IDENTITY")
 if [[ "${VIBE_CONTROLLER_REQUIRE_DISTRIBUTION_SIGNING:-0}" == 1 ]]; then
   SIGN+=(--options runtime --timestamp)
 fi
 codesign "${SIGN[@]}" "$HELPERS/libusb-1.0.0.dylib"
-codesign "${SIGN[@]}" --identifier com.vibe-controller.xbox-usb-session "$HELPERS/VibeXboxUSBSession"
-codesign --verify --strict "$HELPERS/VibeXboxUSBSession"
+codesign "${SIGN[@]}" --identifier "$SERVICE_ID" "$HELPERS/VibeUSBService"
+codesign --verify --strict "$HELPERS/VibeUSBService"

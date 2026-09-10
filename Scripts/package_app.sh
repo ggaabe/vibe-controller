@@ -220,9 +220,11 @@ EOF
 
 plutil -lint "$STAGED_APP/Contents/Info.plist"
 
-VIBE_CONTROLLER_SIGNING_IDENTITY="$SIGNING_IDENTITY" \
-VIBE_CONTROLLER_REQUIRE_DISTRIBUTION_SIGNING="$REQUIRE_DISTRIBUTION_SIGNING" \
-  bash "$ROOT_DIR/Scripts/package_xbox_usb_session.sh" "$STAGED_APP"
+if [[ "$BUNDLE_IDENTIFIER" == com.vibe-controller.app.dev ]]; then
+  VIBE_CONTROLLER_SIGNING_IDENTITY="$SIGNING_IDENTITY" \
+  VIBE_CONTROLLER_REQUIRE_DISTRIBUTION_SIGNING="$REQUIRE_DISTRIBUTION_SIGNING" \
+    bash "$ROOT_DIR/Scripts/package_xbox_usb_session.sh" "$STAGED_APP"
+fi
 
 CODESIGN_ARGUMENTS=(
   --force
@@ -236,11 +238,7 @@ fi
 
 codesign "${CODESIGN_ARGUMENTS[@]}" "$STAGED_APP"
 codesign --verify --deep --strict --verbose=2 "$STAGED_APP"
-if ! codesign -dv "$STAGED_APP/Contents/Helpers/VibeXboxUSBSession" 2>&1 \
-  | grep -Fx 'Identifier=com.vibe-controller.xbox-usb-session' >/dev/null; then
-  echo "Packaged USB helper lost its authentication identity."
-  exit 1
-fi
+bash "$ROOT_DIR/Scripts/verify_full_usb_availability.sh" "$STAGED_APP"
 
 rm -rf "$APP_DIR"
 mv "$STAGED_APP" "$APP_DIR"

@@ -3,6 +3,7 @@ import Foundation
 
 struct XboxUSBInputState: Equatable, Sendable {
     var controllerFamily: ControllerFamily = .xbox
+    var shareRequiresFullUSB = false
     var pressedControls: Set<ControllerControlID> = []
     var analogValues: [ControllerControlID: Double] = [:]
     var leftStick = StickSnapshot()
@@ -214,6 +215,8 @@ enum XboxUSBReportParser {
         values[.rightThumbstick] = min(1, hypot(rightStick.x, rightStick.y))
 
         return XboxUSBInputState(
+            shareRequiresFullUSB: supportsShareButton &&
+                byte(atProtocolOffset: 22, in: bytes, payloadStart: payloadStart) == nil,
             pressedControls: pressed,
             analogValues: values,
             leftStick: leftStick,
@@ -503,6 +506,7 @@ final class XboxUSBControllerReader: @unchecked Sendable {
         from previous: XboxUSBInputState,
         to current: XboxUSBInputState
     ) -> Bool {
+        guard previous.shareRequiresFullUSB == current.shareRequiresFullUSB else { return true }
         guard previous.pressedControls == current.pressedControls else { return true }
 
         let tolerance = 0.0015

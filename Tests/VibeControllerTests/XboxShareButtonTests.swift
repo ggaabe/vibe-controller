@@ -25,6 +25,7 @@ final class XboxShareButtonTests: XCTestCase {
                     previous: state, supportsShareButton: true))
                 XCTAssertEqual(state.pressedControls, expected)
                 XCTAssertEqual(state.analogValues[.share], expected.contains(.share) ? 1 : 0)
+                XCTAssertFalse(state.shareRequiresFullUSB)
             }
         }
     }
@@ -35,6 +36,26 @@ final class XboxShareButtonTests: XCTestCase {
             bytes: Array(down.prefix(19)), supportsShareButton: true))
         XCTAssertFalse(state.pressedControls.contains(.share))
         XCTAssertEqual(state.analogValues[.share], 0)
+        XCTAssertTrue(state.shareRequiresFullUSB)
+    }
+
+    func testShareRequirementTracksTruncatedReportsWithoutPromptingLegacyDevices() throws {
+        for stripped in [false, true] {
+            let full = report(shareByte: 0)
+            let truncated = Array(full.prefix(19))
+            let bytes = stripped ? Array(truncated.dropFirst()) : truncated
+            let series = try XCTUnwrap(XboxUSBReportParser.parse(reportID: 0x20,
+                bytes: bytes, supportsShareButton: true))
+            XCTAssertTrue(series.shareRequiresFullUSB)
+            let legacy = try XCTUnwrap(XboxUSBReportParser.parse(reportID: 0x20, bytes: bytes))
+            XCTAssertFalse(legacy.shareRequiresFullUSB)
+            let guide = try XCTUnwrap(XboxUSBReportParser.parse(reportID: 0x07,
+                bytes: [0x07, 0x30, 0, 0, 1], previous: series, supportsShareButton: true))
+            XCTAssertTrue(guide.shareRequiresFullUSB)
+            let restored = try XCTUnwrap(XboxUSBReportParser.parse(reportID: 0x20,
+                bytes: stripped ? Array(full.dropFirst()) : full, previous: guide, supportsShareButton: true))
+            XCTAssertFalse(restored.shareRequiresFullUSB)
+        }
     }
 
     private func report(shareByte: UInt8) -> [UInt8] {

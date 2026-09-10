@@ -82,12 +82,27 @@ to exactly one Xbox Series USB device (`045e:0b12`) with the validated gamepad
 interface/endpoints. PlayStation, Bluetooth, multiple Xbox devices, and other
 Xbox product IDs continue to use the existing input paths.
 
-macOS requests administrator authorization for each session. The bundled,
-signed `VibeXboxUSBSession` process authenticates the connected app's code
-signature and Team ID; the app verifies the root helper in the other direction.
-The private local socket accepts only heartbeat, bounded motor pulse, and stop
-commands. No persistent helper/daemon, driver replacement, firmware update, or
-network listener is installed. The complete libusb 1.0.30 library and its
+The current development implementation replaces per-session AppleScript elevation
+with **SMAppService** registration. `Contents/Helpers/VibeUSBService` and its
+`Contents/Library/LaunchDaemons/<app-id>.usb-service.plist` stay in the signed app
+bundle. The system-domain Mach service starts on demand after explicit approval
+in Login Items & Extensions. Only the Dev app packages or connects to this service.
+Approval survives a session ending; capture itself remains opt-in each session.
+The app checks status when it becomes active, never silently registers on launch,
+and offers **Remove USB Helper** while capture is stopped.
+
+XPC validates an Apple-anchored signature, matching Team ID and exact app/service
+identifier on every message in both directions. The broker also checks the
+logged-in console user's UID. Its only operation is a versioned `start` request;
+it accepts no executable path, socket path, PID, shell command, or arbitrary USB
+opcode. It returns one end of a private socketpair over XPC and runs one USB
+session at a time on a serial worker queue. No root subprocess is executed.
+The client must send a heartbeat before the helper touches USB; abandoned or
+cancelled requests close the descriptor without starting capture. Socket commands
+are limited to heartbeat, bounded motor pulses, and stop. There is no TCP listener,
+driver replacement, firmware update, or software on the other Macs.
+
+The complete libusb 1.0.30 library and its
 corresponding source/license are bundled; Homebrew is not required for users or
 packaging. Packaging fetches a SHA-256-pinned source archive and builds for
 arm64/macOS 14 rather than copying a newer-OS Homebrew bottle.
@@ -105,6 +120,42 @@ Apple's driver. The app releases held controller actions when the session ends.
 After a disconnect, reconnect the cable and explicitly enable another session;
 there is no silent recapture or automatic administrator prompt.
 
+Startup gets a separate 30-second allowance for device re-enumeration; active
+sessions retain the short heartbeat timeout. Errors identify the failed libusb
+stage and code. Successful driver restoration cannot overwrite the initial
+failure, and final diagnostics remain in the UI and the app's unified log.
+
+### Automated service validation
+
+`swift test` covers approval-state presentation, preserved failure messages, and
+the existing parser/priority/haptics rules. `bash Scripts/test_xbox_usb_session.sh`
+runs the exact C session worker against a fake USB backend: abandoned/invalid
+requests never open USB; open/driver/capture/claim/wake/input errors unwind;
+claimed interfaces release before driver reattachment. It does not require root
+or touch hardware. These checks do not prove the user approved the service or
+that a physical controller captured, rumbled, or handed off across Macs.
+
+### Live approval verification (2026-09-09)
+
+Dev 0.5.4 build 19 registered the new helper successfully. System Settings showed
+**Vibe Controller Dev** under **App Background Activity**, initially off. The user
+enabled it, and the app subsequently reported the helper approved. Starting a
+session launched the root `VibeUSBService` through Service Management without
+another per-session AppleScript/password prompt. Its XPC signing check passed.
+
+The first session reached ready but received zero input reports and then timed
+out. Normal Direct HID input returned. Approval persistence is verified separately
+from USB input reliability: the no-report timeout remains unresolved, and this
+run does not establish working Share, physical vibration, or cross-Mac input.
+
+After restarting into Dev build 20, the app still reported **USB helper approved**
+without another approval prompt. Full USB was left off, normal Direct HID input
+and Native handoff remained ready, and the saved profile hash was unchanged.
+The final Swift suite executed 252 tests (251 passed, one opt-in test skipped),
+and all hardware-free C session scenarios passed. Build 20's helper adds idle
+exit so a future on-demand launch can pick up the current bundled helper; the
+previous build's already-running service is not replaced merely by an app restart.
+
 ### Known recovery limitation
 
 After the original capture experiment, Apple input recovered and HID motor writes
@@ -115,7 +166,7 @@ rumble recovery. The UI warns to reconnect if ordinary USB vibration is silent
 after leaving full USB. Do not claim seamless software recovery until separately
 verified on real hardware.
 
-Dev 0.5.3 build 13 is packaged, signed, and locally running. Its nested helper
+Earlier Dev 0.5.3 build 13 was packaged, signed, and locally run. Its nested helper
 identity and library dependencies are verified; both helper and bundled library
 target macOS 14. The saved user profile is byte-for-byte unchanged. The first
 administrator prompt timed out without starting a capture; normal input and
@@ -132,3 +183,17 @@ Actual Share actions, physical vibration, and cross-Mac use must also be tested.
 References: [libusb macOS capture requirements](https://github.com/libusb/libusb/wiki/FAQ#how-can-i-run-libusb-applications-under-macos-if-there-is-already-a-kernel-extension-installed-for-the-device-and-claim-exclusive-access),
 [libusb 1.0.30 capture/restore implementation](https://github.com/libusb/libusb/blob/v1.0.30/libusb/os/darwin_usb.c),
 [Linux xpad GIP initialization](https://github.com/torvalds/linux/blob/master/drivers/input/joystick/xpad.c).
+
+## Public-release gate (v0.5.5)
+
+Full USB capture is restricted to the signed development bundle
+`com.vibe-controller.app.dev`. Public builds do not show activation controls or
+permission prompts, reject session requests in Swift and the XPC client, and
+omit the USB helper, launch-daemon plist, and libusb payload. Share mappings are
+preserved with a connection-specific unavailable notice. This does not change
+the separate native Universal Control virtual mouse/keyboard output path.
+
+The non-blocking transfer / rumble-spacing repair remains future Dev work, not
+a fix claimed by this release. Before removing the gate, physically verify
+sustained Share + motion + vibration, repeated start/stop, sleep/wake, reconnect,
+and continued remote-Mac movement without unexpected timeouts or recovery replug.
