@@ -36,7 +36,7 @@ struct MappingVibrationEditor: View {
             Text(haptics.isEnabled ? haptics.status.message : "Vibration is muted on this Mac. Patterns are still saved with your profile.")
                 .font(.footnote).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Plays once, not on every repeat. Modifier buttons play when their layer is engaged. Feedback acknowledges a command, not completion in another app.")
+            Text("Plays once, not on every repeat. Modifier taps vibrate when released; combinations use their own feedback. Feedback acknowledges a command, not completion in another app.")
                 .font(.footnote).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         } header: {

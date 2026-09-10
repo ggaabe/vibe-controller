@@ -82,7 +82,6 @@ final class ActionEngine: @unchecked Sendable {
     private let demoCaptureSink: DemoCaptureEventSink?
     private let vibrationOutput: (@Sendable (ControllerVibration, ControllerVibration.Phase) -> Void)?
     private let stopVibrationOutput: (@Sendable () -> Void)?
-    private var modifierVibrations: [ControllerControlID: ControllerVibration] = [:]
     private let eventSource = CGEventSource(stateID: .combinedSessionState)
     private var previousPressedControls = Set<ControllerControlID>()
     private var activeStates: [ControllerControlID: ActiveControlState] = [:]
@@ -246,12 +245,9 @@ final class ActionEngine: @unchecked Sendable {
                     applicationBundleIdentifier: applicationBundleIdentifier
                 )
             } else {
+                // Arming a layer is not an action. Its base command and feedback
+                // wait for an unconsumed release; chords own their own feedback.
                 armModifier(modifierControl)
-                let vibration = profile.effectiveMapping(
-                    for: modifierControl, modifierControl: nil,
-                    applicationBundleIdentifier: applicationBundleIdentifier).vibration
-                modifierVibrations[modifierControl] = vibration
-                emitVibration(vibration, phase: .press)
             }
             handledPresses.insert(modifierControl)
         }
@@ -304,7 +300,6 @@ final class ActionEngine: @unchecked Sendable {
             finishActiveState(for: control, withFeedback: false)
         }
         stopVibrationOutput?()
-        modifierVibrations.removeAll()
         armedModifierControls.removeAll()
         consumedModifierControls.removeAll()
         modifierPressOrder.removeAll()
@@ -393,10 +388,6 @@ final class ActionEngine: @unchecked Sendable {
     ) {
         armedModifierControls.remove(control)
         modifierPressOrder.removeAll(where: { $0 == control })
-        if let vibration = modifierVibrations.removeValue(forKey: control) {
-            emitVibration(vibration, phase: .release)
-        }
-
         let wasConsumed = consumedModifierControls.remove(control) != nil
         if wasConsumed {
             let activeControls = activeStates.compactMap { activeControl, state in
@@ -424,6 +415,9 @@ final class ActionEngine: @unchecked Sendable {
     }
 
     private func fireModifierTapAction(_ mapping: ControllerActionMapping, control: ControllerControlID) {
+        // Although the physical button was released, this is the start of its
+        // tap action. Use its normal pattern once, not a held-action end pulse.
+        defer { emitVibration(mapping.vibration, phase: .press) }
         demoCaptureSink?.action(mapping, control: control, modifier: nil, phase: "modifier-release")
         if mapping.actionType == .leftMouseHold {
             postMouseClick(button: .left)

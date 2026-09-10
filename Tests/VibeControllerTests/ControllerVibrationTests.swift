@@ -116,20 +116,159 @@ final class ControllerVibrationActionTests: XCTestCase {
         snapshot.pressedControls = controls
         return snapshot
     }
-    func testModifierAndCapturePlayOnceAndNotOnModifierTapRelease() {
+    func testModifierTapDefersVibrationUntilItsActionRunsOnRelease() {
+        for modifier in [ControllerControlID.leftShoulder, .rightShoulder] {
+            let recorder = Recorder()
+            let subject = self.engine(recorder)
+            subject.companionDispatch = { _ in recorder.append("action"); return true }
+            let profile = ControllerProfile.gabesDefaults
+            subject.process(snapshot: input([modifier]), profile: profile)
+            subject.process(snapshot: input([modifier]), profile: profile)
+            XCTAssertTrue(recorder.values.isEmpty, "Holding a modifier has not fired an action")
+            subject.process(snapshot: input([]), profile: profile)
+            subject.process(snapshot: input([]), profile: profile)
+            XCTAssertEqual(recorder.values, ["action", "softTap:press"])
+        }
+    }
+
+    func testModifierChordsOnlyVibrateForResolvedActionRegardlessOfReleaseOrder() {
+        let chords: [(ControllerControlID, ControllerVibration)] = [
+            (.buttonNorth, .doubleTap), (.dpadUp, .thump), (.dpadDown, .rightPulse),
+        ]
+        for modifier in [ControllerControlID.leftShoulder, .rightShoulder] {
+            for (button, pattern) in chords {
+                for firstRelease in [Set([modifier]), Set([button]), Set<ControllerControlID>()] {
+                    let recorder = Recorder()
+                    let subject = self.engine(recorder)
+                    var profile = ControllerProfile.gabesDefaults
+                    // Also catch stray release feedback from the consumed modifier.
+                    profile.mappings[modifier]?.vibration = .grabRelease
+                    let layer = profile.modifierLayers.firstIndex { $0.modifierControl == modifier }!
+                    profile.modifierLayers[layer].mappings[button]?.vibration = pattern
+                    subject.process(snapshot: input([modifier]), profile: profile)
+                    XCTAssertTrue(recorder.values.isEmpty)
+                    subject.process(snapshot: input([modifier, button]), profile: profile)
+                    subject.process(snapshot: input([modifier, button]), profile: profile)
+                    XCTAssertEqual(recorder.values, ["\(pattern.rawValue):press"])
+                    subject.process(snapshot: input(firstRelease), profile: profile)
+                    subject.process(snapshot: input([]), profile: profile)
+                    XCTAssertEqual(recorder.values, ["\(pattern.rawValue):press"])
+                }
+            }
+        }
+    }
+
+    func testSimultaneousChordAndShoulderChordDoNotPlayModifierFeedback() {
+        for button in [ControllerControlID.buttonEast, .rightShoulder] {
+            let recorder = Recorder()
+            let subject = self.engine(recorder)
+            var profile = ControllerProfile.gabesDefaults
+            profile.mappings[.leftShoulder]?.vibration = .grabRelease
+            profile.mappings[.rightShoulder]?.vibration = .grabRelease
+            let layer = profile.modifierLayers.firstIndex { $0.modifierControl == .leftShoulder }!
+            var mapping = profile.effectiveMapping(for: button, modifierControl: .leftShoulder)
+            mapping.vibration = .doubleTap
+            profile.modifierLayers[layer].mappings[button] = mapping
+            subject.process(snapshot: input([.leftShoulder, button]), profile: profile)
+            subject.process(snapshot: input([]), profile: profile)
+            XCTAssertEqual(recorder.values, ["doubleTap:press"])
+        }
+    }
+
+    func testQuietChordAndInheritedActionNeverPlayTheModifierPattern() {
+        for button in [ControllerControlID.buttonNorth, .buttonEast] {
+            let recorder = Recorder()
+            let subject = self.engine(recorder)
+            let profile = ControllerProfile.gabesDefaults
+            // RB+Y explicitly has no vibration; RB+B inherits the screenshot's soft tap.
+            let expected = button == .buttonNorth ? [] : ["softTap:press"]
+            subject.process(snapshot: input([.rightShoulder]), profile: profile)
+            subject.process(snapshot: input([.rightShoulder, button]), profile: profile)
+            subject.process(snapshot: input([.rightShoulder]), profile: profile)
+            subject.process(snapshot: input([]), profile: profile)
+            XCTAssertEqual(recorder.values, expected)
+        }
+    }
+
+    func testModifierTapUsesAppOverrideFeedbackAndTreatsGrabReleaseAsATap() {
+        for pattern in [ControllerVibration.doubleTap, .grabRelease, .none] {
+            let recorder = Recorder()
+            let subject = self.engine(recorder)
+            subject.companionDispatch = { _ in recorder.append("action"); return true }
+            var profile = ControllerProfile.gabesDefaults
+            profile.applicationMappings = [ApplicationMappingOverrides(
+                bundleIdentifier: "test.app", displayName: "Test", mappings: [
+                    .leftShoulder: ControllerActionMapping(actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 53, modifiers: []),
+                        triggerMode: .holdWhilePressed, vibration: pattern),
+                ])]
+            subject.process(snapshot: input([.leftShoulder]), profile: profile,
+                            applicationBundleIdentifier: "test.app")
+            XCTAssertTrue(recorder.values.isEmpty)
+            subject.process(snapshot: input([]), profile: profile,
+                            applicationBundleIdentifier: "test.app")
+            let expected = pattern == .none ? ["action"] : ["action", "\(pattern.rawValue):press"]
+            XCTAssertEqual(recorder.values, expected)
+        }
+    }
+
+    func testCancellingUnusedModifierNeverPlaysDeferredFeedback() {
+        for modifier in [ControllerControlID.leftShoulder, .rightShoulder] {
+            let recorder = Recorder()
+            let subject = self.engine(recorder)
+            subject.companionDispatch = { _ in recorder.append("action"); return true }
+            subject.process(snapshot: input([modifier]), profile: .gabesDefaults)
+            subject.cancelAll()
+            subject.process(snapshot: input([]), profile: .gabesDefaults)
+            XCTAssertEqual(recorder.values, ["stop"])
+        }
+    }
+
+    func testHeldChordKeepsItsOwnReleaseFeedbackWhenModifierEndsTheAction() {
         let recorder = Recorder()
         let subject = self.engine(recorder)
-        let profile = ControllerProfile.gabesDefaults
-        subject.process(snapshot: input([.leftShoulder]), profile: profile)
-        subject.process(snapshot: input([.leftShoulder, .buttonEast]), profile: profile)
-        subject.process(snapshot: input([.leftShoulder, .buttonEast]), profile: profile)
-        subject.process(snapshot: input([]), profile: profile)
-        XCTAssertEqual(recorder.values, ["softTap:press", "softTap:press"])
+        var profile = ControllerProfile.gabesDefaults
+        profile.mappings[.rightShoulder]?.vibration = .doubleTap
         subject.process(snapshot: input([.rightShoulder]), profile: profile)
+        subject.process(snapshot: input([.rightShoulder, .leftTrigger]), profile: profile)
+        XCTAssertEqual(recorder.values, ["grabRelease:press"])
+        subject.process(snapshot: input([.leftTrigger]), profile: profile)
         subject.process(snapshot: input([]), profile: profile)
-        XCTAssertEqual(recorder.values.last, "softTap:press")
-        XCTAssertEqual(recorder.values.count, 3)
+        XCTAssertEqual(recorder.values, ["grabRelease:press", "grabRelease:release"])
     }
+
+    func testNativeQueueDefersModifierFeedbackWithoutNeedingTheMainThread() {
+        let recorder = Recorder()
+        let queue = DispatchQueue(label: "test.modifier-feedback.native")
+        let subject = ActionEngine(cursorEngine: CursorEngine(),
+            shortcutOutput: { shortcut, down in recorder.append("key:\(shortcut.keyCode):\(down)") },
+            actionQueue: queue,
+            vibrationOutput: { pattern, phase in
+                recorder.append("\(pattern.rawValue):\(phase):main=\(Thread.isMainThread)")
+            })
+        defer { subject.cancelAll() }
+        subject.accessibilityTrusted = true
+        var profile = ControllerProfile.gabesDefaults
+        let layer = profile.modifierLayers.firstIndex { $0.modifierControl == .leftShoulder }!
+        profile.modifierLayers[layer].mappings[.buttonNorth]?.vibration = .doubleTap
+        subject.configureRealtimeActions(profile: profile, applicationBundleIdentifier: nil, enabled: true)
+
+        XCTAssertTrue(subject.receiveRealtimeActions(input([.leftShoulder])))
+        queue.sync {} // Drain input without pumping MainActor or a run loop.
+        XCTAssertTrue(recorder.values.isEmpty)
+        XCTAssertTrue(subject.receiveRealtimeActions(input([])))
+        queue.sync {}
+        XCTAssertEqual(recorder.values, ["key:53:true", "key:53:false", "softTap:press:main=false"])
+
+        XCTAssertTrue(subject.receiveRealtimeActions(input([.leftShoulder, .buttonNorth])))
+        XCTAssertTrue(subject.receiveRealtimeActions(input([])))
+        queue.sync {}
+        XCTAssertEqual(recorder.values, [
+            "key:53:true", "key:53:false", "softTap:press:main=false",
+            "key:49:true", "key:49:false", "doubleTap:press:main=false",
+        ])
+    }
+
     func testGrabReleaseAndCancellation() {
         let recorder = Recorder()
         let engine = self.engine(recorder)
