@@ -2,6 +2,8 @@
 
 Status: production plan, 2026-09-08. Local Demo Capture is now implemented in the development source: Option-revealed app-menu access, selected-display videos, controller/accepted-action logs, and sync slates. See ../../docs/DEMO-CAPTURE.md and ../../docs/LAUNCH-DEMO-SCRIPT.md. The tracked screen replacement and foreground roto still require a representative real shot; they are not automatic app features.
 
+Shoot revision, 2026-09-09: use the real Vibe Controller app and repository. Keep its live controller map on the lead Mac's upper monitor and Codex on the main laptop immediately below. The second laptop provides a short native-handoff demonstration and a real, read-only documentation review. The current shot-by-shot script is [LAUNCH-DEMO-SCRIPT.md](../../docs/LAUNCH-DEMO-SCRIPT.md); it supersedes the earlier dummy-project staging.
+
 ## Creative direction
 
 Use the real first-person phone footage as the setting. A synchronized, clean display recording begins pinned inside the laptop bezel, lifts forward, rotates toward a readable front-facing view, then settles back. Preserve the hands and pink controller in front of the floating screen throughout. Use this on selected demonstration moments, not continuously.
@@ -20,14 +22,16 @@ Start with a 2.5D corner-pinned transition; only solve a full 3D camera if the c
 
 Let the clean panel expand mainly above the controller. Keep the action/result region clear of the hands even though the hands can naturally overlap the panel's lower edge. Avoid a floating screen that hides the button press or lets the foreground obscure the important text.
 
+For this layout, do not expand Codex over the upper live map. Preserve both screen planes or place a synchronized crop of the actual map beside the readable Codex panel. The viewer should see the physical press, the app's real input animation, and the resulting attachment/text. Retain the map's recorded timing rather than retiming UI telemetry to match a button log exactly.
+
 ## First proof shot
 
 - Record one short take, approximately 15–25 seconds, on a single Mac first.
-- Capture a screenshot selection, dictate a short request, and submit it. Allow the actual workflow duration; do not rush or speed up input-to-result intervals to hit the target.
+- Select a real part of Vibe Controller on the upper monitor, paste its screenshot into Codex on the laptop below, dictate a small UI improvement to this repository, and submit it. Record both displays; a cursor-following review movie alone will omit the live map when focus moves down. Allow the actual workflow duration; do not rush or speed up input-to-result intervals to hit the target.
 - Keep hands/controller comfortably in the lower part of the phone frame, with enough room above for readable UI. Inspect the actual framing before settling panel dimensions.
 - Keep the relevant screen corners visible. Avoid abrupt neck turns, extreme angles, focus hunting, or sweeping hands over the screen border.
 - Use one stable phone lens and orientation, deliberate movement, and consistent lighting. Test exposure/focus before filming. Capture phone and screen at compatible frame rates where available, but retain timestamps rather than assuming nominal frame counts match.
-- Use a harmless demo workspace and avoid notifications or private documents on the captured displays.
+- Use the actual Vibe Controller workspace after reviewing its visible task history, terminals, and notifications for private content. Preserve existing source changes. A clean task in this project is fine; a dummy project is not the intended demonstration.
 - Render and review the entire transition: pinned screen, halfway expansion, readable hold, return. Judge readability at phone viewing size and check foreground edges frame by frame where necessary.
 
 No full reshoot or custom recorder is required to prove this effect. Existing camera footage stays available as narration and establishing footage; newly captured screen inserts must not be misrepresented as exact records of an earlier take.

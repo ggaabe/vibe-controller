@@ -1,5 +1,7 @@
 # Vibe Controller — real-workflow launch video
 
+> Earlier 75–95 second concept, retained for reference. The current shoot uses **Vibe Controller on the upper monitor and Codex on the main laptop below, working on this actual repository**—not the dummy-project staging described below. Follow [the current recording script](../../docs/LAUNCH-DEMO-SCRIPT.md) for the revised 60–80 second sequence and [the capture plan](../LaunchDemo/CAPTURE-AND-COMPOSITING-PLAN.md) for synchronized live-map footage.
+
 ## Creative direction
 
 Aim for a 75–95 second landscape film. The phone-mounted first-person view is the main footage: both hands, the Xbox controller, and the destination screens establish that this is real input. Use matching screen recordings when viewers need to read an attachment or prompt. Do not replace the main proof with the illustrated product film.
