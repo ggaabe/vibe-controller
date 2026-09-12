@@ -1,0 +1,16 @@
+{
+  "name": "vibe-controller-website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "serve": "node serve.mjs",
+    "test": "node --test tests/build.test.mjs && playwright test",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0",
+    "prettier": "3.9.6"
+  }
+}

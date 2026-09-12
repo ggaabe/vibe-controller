@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="660" viewBox="0 0 1000 660" fill="none">
+  <title>Xbox controller, graphite, tilted forward</title>
+  <desc>Original vector artwork for Vibe Controller. Offset sticks, faceted directional pad, ABXY buttons, bumpers and raised triggers.</desc>
+  <defs>
+    <linearGradient id="shell" x1="500" y1="180" x2="500" y2="590" gradientUnits="userSpaceOnUse"><stop stop-color="#555B65"/><stop offset=".42" stop-color="#393E47"/><stop offset="1" stop-color="#242830"/></linearGradient>
+    <linearGradient id="edge" x1="500" y1="170" x2="500" y2="600" gradientUnits="userSpaceOnUse"><stop stop-color="#A1A7AF"/><stop offset=".45" stop-color="#505762"/><stop offset="1" stop-color="#171A20"/></linearGradient>
+    <linearGradient id="key" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#393E46"/><stop offset="1" stop-color="#15181D"/></linearGradient>
+    <linearGradient id="trigger" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#666D78"/><stop offset=".4" stop-color="#373D47"/><stop offset="1" stop-color="#1E222A"/></linearGradient>
+    <radialGradient id="cap"><stop stop-color="#30353C"/><stop offset=".8" stop-color="#20242B"/><stop offset="1" stop-color="#111419"/></radialGradient>
+    <pattern id="grip" width="9" height="9" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#808996" opacity=".17"/></pattern>
+  </defs>
+  <ellipse cx="500" cy="590" rx="348" ry="32" fill="#000" opacity=".05"/>
+  <ellipse cx="500" cy="590" rx="304" ry="22" fill="#000" opacity=".08"/>
+  <ellipse cx="500" cy="587" rx="245" ry="12" fill="#000" opacity=".12"/>
+  <path d="M221 191 L231 123 Q237 89 269 84 L313 84 Q342 87 348 118 L355 184Z" fill="#15191F" stroke="#666F7A" stroke-width="2"/>
+  <path d="M645 184 L652 118 Q658 87 687 84 L731 84 Q763 89 769 123 L779 191Z" fill="#15191F" stroke="#666F7A" stroke-width="2"/>
+  <path d="M236 141 L244 112 Q248 99 268 97 L311 97 Q329 99 333 112 L340 141Z" fill="url(#trigger)"/>
+  <path d="M660 141 L667 112 Q671 99 689 97 L732 97 Q752 99 756 112 L764 141Z" fill="url(#trigger)"/>
+  <path d="M200 231 Q186 168 230 149 Q500 119 770 149 Q814 168 800 231Z" fill="url(#trigger)" stroke="#676F7B" stroke-width="1.5"/>
+  <rect x="466" y="143" width="68" height="15" rx="7.5" fill="#11151A" stroke="#727A85"/>
+  <rect x="477" y="148" width="46" height="4" rx="2" fill="#4D5560"/>
+  <path d="M245 188 C195 187 162 206 145 250 C123 307 80 454 79 499 C74 544 92 584 120 591 C166 602 198 553 244 507 L293 458 C315 439 337 445 361 456 C448 501 552 501 638 456 C663 443 685 439 707 458 L756 507 C802 553 834 602 880 591 C909 584 926 544 921 499 C920 454 877 307 855 250 C837 206 805 187 755 188 C654 169 346 169 245 188Z" fill="#12151B" stroke="#13171D" stroke-width="4"/>
+  <path d="M245 178 C195 177 162 196 145 240 C123 297 80 444 79 489 C74 534 92 574 120 581 C166 592 198 543 244 497 L293 448 C315 429 337 435 361 446 C448 491 552 491 638 446 C663 433 685 429 707 448 L756 497 C802 543 834 592 880 581 C909 574 926 534 921 489 C920 444 877 297 855 240 C837 196 805 177 755 178 C654 159 346 159 245 178Z" fill="url(#shell)" stroke="url(#edge)" stroke-width="2"/>
+  <path d="M151 250 Q198 171 318 194 Q411 212 500 212 Q589 212 682 194 Q802 171 849 250" stroke="#FFFFFF" stroke-opacity=".1" stroke-width="2"/>
+  <path d="M205 351 C165 403 140 482 131 552 M795 351 C835 403 860 482 869 552" stroke="#151A21" stroke-opacity=".3" stroke-width="2"/>
+  <path d="M151 383 Q105 479 110 539 Q116 568 136 558 L227 464 L248 419Z M849 383 Q895 479 890 539 Q884 568 864 558 L773 464 L752 419Z" fill="url(#grip)"/>
+  <path d="M330 362 Q500 414 670 362" stroke="#FFFFFF" stroke-opacity=".035"/>
+  <rect x="209" y="148" width="157" height="45" rx="19" fill="url(#key)" stroke="#747C86" stroke-opacity=".55"/>
+  <rect x="634" y="148" width="157" height="45" rx="19" fill="url(#key)" stroke="#747C86" stroke-opacity=".55"/>
+  <g fill="#D1D6DF" font-family="Helvetica, Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle"><text x="288" y="128">LT</text><text x="712" y="128">RT</text><text x="288" y="177">LB</text><text x="712" y="177">RB</text></g>
+  <g stroke="#6B737F" stroke-opacity=".55" stroke-width="2"><circle cx="283" cy="292" r="68" fill="#191D23"/><circle cx="600" cy="420" r="68" fill="#191D23"/></g>
+  <g stroke="#070A0E" stroke-width="5" fill="url(#cap)"><circle cx="283" cy="292" r="51"/><circle cx="600" cy="420" r="51"/></g>
+  <g fill="none" stroke="#7A838F" stroke-opacity=".35" stroke-width="2"><circle cx="283" cy="292" r="46"/><circle cx="600" cy="420" r="46"/></g>
+  <path d="M343 377 L374 359 L407 359 L438 377 L456 408 L456 437 L438 459 L407 477 L374 477 L343 459 L326 437 L326 408Z" fill="#191D23" stroke="#69727E" stroke-opacity=".5" stroke-width="2"/>
+  <path d="M346 381 L374 366 L406 366 L434 381 L448 408 L448 434 L434 453 L406 469 L374 469 L346 453 L333 434 L333 408Z" fill="url(#key)"/>
+  <path d="M374 366 L376 402 L333 408 M406 366 L404 402 L448 408 M448 434 L404 432 L406 469 M374 469 L376 432 L333 434" stroke="#818A97" stroke-opacity=".17" stroke-width="2"/>
+  <g stroke="#C1C7D0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M384 386 L390 380 L396 386 M384 449 L390 455 L396 449 M357 411 L351 417 L357 423 M423 411 L429 417 L423 423"/></g>
+  <g fill="url(#key)" stroke="#0E1116" stroke-width="3"><circle cx="743" cy="227" r="25"/><circle cx="801" cy="285" r="25"/><circle cx="743" cy="343" r="25"/><circle cx="685" cy="285" r="25"/></g>
+  <g fill="none" stroke="#AEB9C8" stroke-opacity=".26"><circle cx="743" cy="227" r="22"/><circle cx="801" cy="285" r="22"/><circle cx="743" cy="343" r="22"/><circle cx="685" cy="285" r="22"/></g>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="23" font-weight="700" text-anchor="middle"><text x="743" y="235" fill="#F5CE54">Y</text><text x="801" y="293" fill="#F37F7C">B</text><text x="743" y="351" fill="#8FDB7B">A</text><text x="685" y="293" fill="#76BCF4">X</text></g>
+  <circle cx="500" cy="230" r="24" fill="#22262D" stroke="#777F89" stroke-width="1.5"/>
+  <circle cx="500" cy="230" r="15" fill="#E8EDF3"/>
+  <path d="M488 241 Q490 228 500 222 Q510 228 512 241 M489 219 Q500 222 511 219" stroke="#2E343D" stroke-width="4"/>
+  <g fill="url(#key)" stroke="#717986" stroke-opacity=".35"><circle cx="446" cy="296" r="21"/><circle cx="554" cy="296" r="21"/><rect x="484" y="322" width="32" height="23" rx="10"/></g>
+  <g stroke="#BBC3CD" stroke-width="2" stroke-linejoin="round"><path d="M438 292 H451 V302 H438Z M442 292 V288 H455 V298 H451"/><path d="M546 291 H562 M546 296 H562 M546 301 H562"/><path d="M493 333 V339 H507 V333 M500 335 V327 M496 331 L500 327 L504 331"/></g>
+</svg>

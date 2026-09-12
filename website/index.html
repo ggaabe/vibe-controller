@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>
+      Vibe Controller — Your game controller. Now your Mac controller.
+    </title>
+    <meta
+      name="description"
+      content="Turn your Xbox or PlayStation controller into a Mac input device. Point, click, capture, dictate, and move between Macs with Universal Control. Free macOS beta."
+    />
+    <meta name="theme-color" content="#f5f3ee" />
+    <link rel="canonical" href="{{SITE_URL}}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="{{SITE_URL}}" />
+    <meta
+      property="og:title"
+      content="Vibe Controller — Put your controller to work."
+    />
+    <meta
+      property="og:description"
+      content="Point. Capture. Dictate. Cross Macs. An entirely different way to use your Mac, with the controller you already own."
+    />
+    <meta property="og:image" content="{{SITE_URL}}assets/social-card.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Vibe Controller: your game controller, now your Mac controller, with a pink Xbox-style controller illustration."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Vibe Controller — Put your controller to work."
+    />
+    <meta
+      name="twitter:description"
+      content="Your Xbox or PlayStation controller is your new Mac input device. Free macOS beta."
+    />
+    <meta name="twitter:image" content="{{SITE_URL}}assets/social-card.jpg" />
+    <link rel="icon" type="image/png" href="assets/icon.png" />
+    <link rel="apple-touch-icon" href="assets/icon.png" />
+    <link
+      rel="preload"
+      href="assets/hero-controller.webp"
+      as="image"
+      fetchpriority="high"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header">
+      <a class="wordmark" href="#" aria-label="Vibe Controller home"
+        ><img src="assets/icon.png" alt="" width="32" height="32" />Vibe
+        Controller<span class="beta">BETA</span></a
+      >
+      <nav aria-label="Main navigation">
+        <a href="#workflow">The workflow</a><a href="#setup">Get started</a>
+        <a class="github-nav" href="https://github.com/ggaabe/vibe-controller"
+          >GitHub <span aria-hidden="true">↗</span></a
+        >
+        <a class="nav-download" href="{{DOWNLOAD_URL}}"
+          >Download <span aria-hidden="true">↓</span></a
+        >
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-art" aria-hidden="true">
+          <img
+            src="assets/hero-controller.webp"
+            width="1536"
+            height="1024"
+            alt=""
+            fetchpriority="high"
+          />
+        </div>
+        <div class="hero-content">
+          <p class="eyebrow hero-enter">A NEW WAY TO USE YOUR MAC</p>
+          <h1 class="hero-enter" id="hero-title">
+            Vibe<br />Controller<span class="period">.</span>
+          </h1>
+          <p class="hero-description hero-enter">
+            Your game controller.<br />Now your Mac controller.
+          </p>
+          <div class="hero-actions hero-enter">
+            <a class="button button-dark" href="{{DOWNLOAD_URL}}"
+              ><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path
+                  d="M16.4 12.7c0-2.1 1.7-3.1 1.8-3.2-1-1.5-2.6-1.7-3.2-1.7-1.4-.2-2.7.8-3.4.8-.7 0-1.8-.8-2.9-.8-1.5 0-2.9.9-3.6 2.2-1.6 2.7-.4 6.7 1.1 8.9.8 1.1 1.6 2.2 2.8 2.1 1.1 0 1.5-.7 2.9-.7 1.3 0 1.7.7 2.9.7 1.2 0 1.9-1.1 2.6-2.1.9-1.2 1.2-2.4 1.2-2.5-.1 0-2.2-.9-2.2-3.7ZM14.2 6.4c.6-.8 1.1-1.9 1-3-.9 0-2 .6-2.7 1.4-.6.7-1.2 1.8-1.1 2.9 1 .1 2.1-.5 2.8-1.3Z"
+                /></svg
+              >Download for Mac <span aria-hidden="true">↓</span></a
+            >
+            <a class="text-link" href="#workflow"
+              >See it in action <span aria-hidden="true">↘</span></a
+            >
+          </div>
+          <p class="hero-meta hero-enter">
+            Free beta · macOS 14+ · Apple silicon<br /><a href="{{RELEASE_URL}}"
+              >v{{VERSION}} · Signed &amp; notarized</a
+            >
+          </p>
+        </div>
+        <div class="hero-caption">
+          <span class="eyebrow">XBOX &amp; PLAYSTATION. OUTSIDE THE GAME.</span
+          ><span class="scroll-cue" aria-hidden="true"
+            >SCROLL TO EXPLORE ↓</span
+          >
+        </div>
+      </section>
+
+      <section
+        class="workflow dark-section"
+        id="workflow"
+        aria-labelledby="workflow-title"
+      >
+        <div class="section-heading reveal">
+          <div>
+            <p class="eyebrow">01 / LESS REACHING. MORE DOING.</p>
+            <h2 id="workflow-title">Screenshot.<br />Speak. Send.</h2>
+          </div>
+          <p>
+            Show your AI what you mean.<br />Tell it what to do.<br />Keep your
+            hands on the controller.
+          </p>
+        </div>
+        <div class="workflow-stage reveal">
+          <div class="workflow-controls" aria-label="Explore the workflow">
+            <button
+              class="workflow-step active"
+              data-step="capture"
+              aria-pressed="true"
+            >
+              <span class="step-number">01</span
+              ><span
+                ><strong>Capture the context</strong
+                ><small>Select an area of your screen.</small></span
+              ><span class="key-combo">B + LT</span>
+            </button>
+            <button
+              class="workflow-step"
+              data-step="dictate"
+              aria-pressed="false"
+            >
+              <span class="step-number">02</span
+              ><span
+                ><strong>Say what you want</strong
+                ><small>Trigger your dictation shortcut.</small></span
+              ><span class="key-combo">RT</span>
+            </button>
+            <button class="workflow-step" data-step="send" aria-pressed="false">
+              <span class="step-number">03</span
+              ><span
+                ><strong>Send it on its way</strong
+                ><small>Press the left stick for Return.</small></span
+              ><span class="key-combo">L3</span>
+            </button>
+          </div>
+          <div
+            class="demo-window"
+            data-demo="capture"
+            role="img"
+            aria-label="Illustrative workflow: select a screenshot, paste it into an AI chat, dictate a request, and press Return."
+          >
+            <div class="window-bar">
+              <span class="window-dots"><i></i><i></i><i></i></span
+              ><span>YOUR WORKSPACE</span><span>↗</span>
+            </div>
+            <div class="example-site">
+              <div class="example-nav">
+                <b>studio.</b><span>Work &nbsp; About &nbsp; Contact</span>
+              </div>
+              <div class="example-page">
+                <span class="example-label">INDEPENDENT DESIGN STUDIO</span
+                ><strong>Good ideas.<br />Better websites.</strong
+                ><span class="example-link">Explore our work ↗</span>
+              </div>
+              <div class="selection-box">
+                <span>+</span><i></i><i></i><i></i><i></i>
+              </div>
+            </div>
+            <div class="demo-compose">
+              <div class="attachment">
+                <span aria-hidden="true">▧</span> Screen selection
+              </div>
+              <p class="demo-prompt">Describe what you’d like to change…</p>
+              <div class="compose-footer">
+                <span class="waveform" aria-hidden="true"
+                  ><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i
+                  ><i></i></span
+                ><span class="compose-status">Paste your screenshot with Y</span
+                ><span class="send-arrow" aria-hidden="true">↑</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="section-foot">
+          <p id="workflow-caption" aria-live="polite">
+            B starts area capture. Hold LT and move the stick to select. Y
+            pastes the screenshot into your focused chat.
+          </p>
+          <span>INTERACTIVE WALKTHROUGH · EXAMPLE UI</span>
+        </div>
+      </section>
+
+      <section
+        class="mappings section-pad"
+        id="controls"
+        aria-labelledby="controls-title"
+      >
+        <div class="section-heading reveal">
+          <div>
+            <p class="eyebrow">02 / FAMILIAR HARDWARE. NEW POSSIBILITIES.</p>
+            <h2 id="controls-title">Make every<br />button yours.</h2>
+          </div>
+          <p>
+            Start with Gabe’s Defaults.<br />Remap any button. Add modifier
+            layers.<br />Give each app its own shortcuts.
+          </p>
+        </div>
+        <div class="mapping-layout reveal">
+          <div class="controller-explorer">
+            <div class="explorer-toolbar">
+              <div class="segmented" aria-label="Controller layout">
+                <button data-family="xbox" aria-pressed="true">Xbox</button
+                ><button data-family="playstation" aria-pressed="false">
+                  PlayStation
+                </button>
+              </div>
+              <span class="eyebrow">TRY A BUTTON ↙</span>
+            </div>
+            <div class="controller-canvas" data-controller="xbox">
+              <div class="controller-svg" id="xbox-art">{{XBOX_SVG}}</div>
+              <div class="controller-svg" id="playstation-art" hidden>
+                {{PLAYSTATION_SVG}}
+              </div>
+              <div
+                class="control-hotspots"
+                id="control-hotspots"
+                aria-label="Preview controller mappings"
+              ></div>
+            </div>
+            <div class="explorer-footer">
+              <div class="swatches" aria-label="Controller color">
+                <button
+                  data-color="pink"
+                  aria-label="Pink controller"
+                  aria-pressed="true"
+                >
+                  <span></span></button
+                ><button
+                  data-color="original"
+                  aria-label="Original controller color"
+                  aria-pressed="false"
+                >
+                  <span></span></button
+                ><button
+                  data-color="white"
+                  aria-label="White controller"
+                  aria-pressed="false"
+                >
+                  <span></span>
+                </button>
+              </div>
+              <span>Same controls. Your personality.</span>
+            </div>
+          </div>
+          <div class="mapping-detail" aria-live="polite" aria-atomic="true">
+            <span class="large-key" id="mapping-key">B</span>
+            <p class="eyebrow" id="mapping-category">SCREEN CAPTURE</p>
+            <h3 id="mapping-title">Give your AI<br />the full picture.</h3>
+            <p id="mapping-description">
+              Capture a region of your screen straight to the clipboard. Hold
+              the left trigger to drag, then press Y to paste.
+            </p>
+            <span class="shortcut" id="mapping-shortcut">⌃ ⇧ ⌘ 4</span>
+            <div class="mapping-note">
+              These are starter mappings, not hard rules.<br />Change them in
+              the app’s controller map.
+            </div>
+          </div>
+        </div>
+        <noscript
+          ><p>
+            The interactive map needs JavaScript. The starter controls include B
+            / Circle for screenshots, RT / R2 for dictation, Y / Triangle for
+            paste, A / Cross for click, and L3 for Return.
+            <a
+              href="https://github.com/ggaabe/vibe-controller#remapping-controls"
+              >See all mappings on GitHub.</a
+            >
+          </p></noscript
+        >
+        <div class="feature-lines reveal">
+          <div>
+            <span>01</span>
+            <h3>Two sticks. Two speeds.</h3>
+            <p>
+              Cover the screen with the primary stick. Dial in the small stuff
+              with the precision stick.
+            </p>
+          </div>
+          <div>
+            <span>02</span>
+            <h3>A second layer of control.</h3>
+            <p>
+              Hold LB or RB to unlock another set of actions. The live app map
+              shows what changes.
+            </p>
+          </div>
+          <div>
+            <span>03</span>
+            <h3>Your apps. Your rules.</h3>
+            <p>
+              Set shortcuts for apps on your lead Mac. Everything else falls
+              back to your global mappings.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="handoff section-pad"
+        id="universal-control"
+        aria-labelledby="handoff-title"
+      >
+        <div class="section-heading reveal">
+          <div>
+            <p class="eyebrow">03 / THE EDGE ISN’T THE END.</p>
+            <h2 id="handoff-title">One controller.<br />Your whole setup.</h2>
+          </div>
+          <div class="section-description">
+            <p>
+              Move across a screen edge to your next Mac. Native Universal
+              Control carries your pointer, clicks, and shortcuts with you.
+            </p>
+            <p class="small-note">
+              Install Vibe Controller and its bundled virtual input support on
+              the lead Mac only.
+            </p>
+          </div>
+        </div>
+        <div
+          class="mac-scene reveal"
+          data-screen="0"
+          role="img"
+          aria-label="Illustration of one controller moving a pointer from the lead Mac to two other Macs through Universal Control."
+        >
+          <div class="scene-track">
+            <div class="laptop laptop-left">
+              <div class="laptop-screen">
+                <div class="mini-chrome"><i></i><i></i><i></i></div>
+                <div class="mini-editor">
+                  <div class="mini-sidebar"></div>
+                  <div class="mini-code">
+                    <i></i><i></i><i></i><i></i><i></i>
+                  </div>
+                </div>
+                <span class="screen-name">LEAD MAC</span>
+              </div>
+              <div class="laptop-base"></div>
+            </div>
+            <div class="laptop laptop-center">
+              <div class="laptop-screen">
+                <div class="mini-chrome"><i></i><i></i><i></i></div>
+                <div class="mini-art">
+                  <span>make<br />something<br /><em>good.</em></span>
+                </div>
+                <span class="screen-name">SECOND MAC</span>
+              </div>
+              <div class="laptop-base"></div>
+            </div>
+            <div class="laptop laptop-right">
+              <div class="laptop-screen">
+                <div class="mini-chrome"><i></i><i></i><i></i></div>
+                <div class="mini-terminal">
+                  <span>~/next-big-idea</span>
+                  <p>
+                    ❯ ready when you are<span class="terminal-caret">▍</span>
+                  </p>
+                </div>
+                <span class="screen-name">ANOTHER MAC</span>
+              </div>
+              <div class="laptop-base"></div>
+            </div>
+            <div class="scene-cursor" aria-hidden="true">
+              <svg viewBox="0 0 32 40">
+                <path
+                  d="M3 2v30l8-8 7 13 6-3-7-12h12Z"
+                  fill="#ec4d87"
+                  stroke="#fff"
+                  stroke-width="2"
+                /></svg
+              ><span>YOU</span>
+            </div>
+          </div>
+        </div>
+        <div class="handoff-controls">
+          <button class="button button-outline" id="handoff-next">
+            Move to the next Mac <span aria-hidden="true">→</span></button
+          ><span id="handoff-status" aria-live="polite"
+            >Pointer on the lead Mac</span
+          >
+        </div>
+        <p class="handoff-note">
+          Illustration · Already set up Universal Control? You’re halfway there.
+          <a
+            href="https://support.apple.com/guide/mac-help/keyboard-mouse-control-mac-ipad-mchl412faecf/mac"
+            >Check Apple’s requirements ↗</a
+          >
+        </p>
+      </section>
+
+      <section
+        class="setup section-pad"
+        id="setup"
+        aria-labelledby="setup-title"
+      >
+        <div class="section-heading reveal">
+          <div>
+            <p class="eyebrow">04 / READY WHEN YOU ARE.</p>
+            <h2 id="setup-title">A few permissions.<br />Then you’re in.</h2>
+          </div>
+          <div>
+            <a class="button button-dark" href="{{DOWNLOAD_URL}}"
+              >Get Vibe Controller <span aria-hidden="true">↓</span></a
+            >
+            <p class="download-detail">
+              v{{VERSION}} · Free macOS beta<br />Apple silicon · macOS 14 or
+              later
+            </p>
+          </div>
+        </div>
+        <ol class="setup-steps reveal">
+          <li>
+            <span class="step-number">01</span>
+            <h3>Connect &amp; install.</h3>
+            <p>
+              Connect your Xbox or PlayStation controller by USB or Bluetooth.
+              Open the DMG and drag Vibe Controller to Applications.
+            </p>
+          </li>
+          <li>
+            <span class="step-number">02</span>
+            <h3>Allow Accessibility.</h3>
+            <p>
+              Follow the app’s setup guide to approve Accessibility in System
+              Settings. This lets your controller move the pointer and send
+              shortcuts.
+            </p>
+          </li>
+          <li>
+            <span class="step-number">03</span>
+            <h3>Enable native handoff.</h3>
+            <p>
+              Install the bundled Virtual Hardware Support and approve its
+              Karabiner Driver Extension. The app checks each step as you go.
+            </p>
+          </li>
+        </ol>
+        <p class="setup-hint">
+          An administrator may need to approve the support installer. Nothing is
+          silently installed, and your other Macs don’t need Vibe Controller.
+          <a href="https://github.com/ggaabe/vibe-controller#first-run-setup"
+            >Read the setup guide ↗</a
+          >
+        </p>
+      </section>
+
+      <section class="faq section-pad" aria-labelledby="faq-title">
+        <div>
+          <p class="eyebrow">A LITTLE MORE CONTEXT</p>
+          <h2 id="faq-title">Good questions.</h2>
+          <a
+            class="text-link"
+            href="https://github.com/ggaabe/vibe-controller/issues"
+            >Ask one on GitHub ↗</a
+          >
+        </div>
+        <div class="faq-items">
+          <details>
+            <summary>
+              Which controllers and Macs work?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              The packaged app runs on Apple-silicon Macs with macOS 14 or
+              later. It supports Xbox-compatible controllers, PlayStation
+              DualSense, and DualShock 4 through USB or Bluetooth. Available
+              controls and vibration depend on the model and connection; some
+              Xbox USB connections do not expose the Share button.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Do I need the app on every Mac?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              No, not for native Universal Control. Install Vibe Controller and
+              the bundled virtual input support on the controller-connected Mac.
+              Your other Macs use Apple’s Universal Control. Compatible devices
+              must use the same Apple Account with two-factor authentication,
+              with Wi-Fi, Bluetooth, and Handoff enabled.
+              <a
+                href="https://support.apple.com/guide/mac-help/keyboard-mouse-control-mac-ipad-mchl412faecf/mac"
+                >Apple’s setup requirements.</a
+              >
+            </p>
+          </details>
+          <details>
+            <summary>
+              Are dictation and OCR built in?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              Vibe Controller triggers your existing tools. Configure RT / R2
+              for your preferred dictation shortcut. For drag-to-copy text, we
+              recommend buying
+              <a href="https://textsniper.app/">TextSniper</a> or using an
+              equivalent OCR utility, then mapping X / Square to its capture
+              shortcut. OCR software is separate and not included. Region
+              screenshots use macOS’s built-in capture.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Do app-specific mappings follow me to another Mac?<span
+                aria-hidden="true"
+                >+</span
+              >
+            </summary>
+            <p>
+              Keyboard output follows the Universal Control pointer, but the
+              lead Mac cannot see which app is focused on the other Mac.
+              App-specific mappings follow the foreground app on the lead Mac.
+              Global mappings and controller modifier combinations are the
+              predictable option across computers.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Is it free? Does it need an account?<span aria-hidden="true"
+                >+</span
+              >
+            </summary>
+            <p>
+              The beta is free to download, and Vibe Controller does not require
+              its own account or subscription. Profiles stay on your Mac.
+              Updates are distributed through GitHub; macOS Universal Control
+              uses your Apple Account. You can inspect the
+              <a href="https://github.com/ggaabe/vibe-controller"
+                >source on GitHub</a
+              >
+              and report issues there.
+            </p>
+          </details>
+          <details>
+            <summary>
+              What happens when there’s an update?<span aria-hidden="true"
+                >+</span
+              >
+            </summary>
+            <p>
+              Installed release builds check GitHub daily, and you can use Check
+              for Updates in the app. Update Now verifies the downloaded release
+              and signing identity, updates the app in place, and relaunches it.
+              Development builds remain separate and link to the releases page
+              instead.
+            </p>
+          </details>
+        </div>
+      </section>
+
+      <section class="final-cta section-pad">
+        <p class="eyebrow">LESS KEYBOARD. MORE POSSIBILITY.</p>
+        <div>
+          <h2>Put your<br />controller to work<span>.</span></h2>
+          <a
+            class="round-download"
+            href="{{DOWNLOAD_URL}}"
+            aria-label="Download Vibe Controller for Apple-silicon Mac"
+            >↙</a
+          >
+        </div>
+        <p>Pick up the controller you already own. Try something different.</p>
+        <a class="text-link" href="{{DOWNLOAD_URL}}"
+          >Download for Mac <span aria-hidden="true">↓</span></a
+        >
+      </section>
+    </main>
+    <footer class="footer">
+      <a class="wordmark" href="#"
+        ><img src="assets/icon.png" alt="" width="28" height="28" />Vibe
+        Controller</a
+      >
+      <p>
+        Made by <a href="https://github.com/ggaabe">Gabe</a>. Built for a
+        different kind of workflow.
+      </p>
+      <div>
+        <a href="{{RELEASE_URL}}">Releases ↗</a
+        ><a href="https://github.com/ggaabe/vibe-controller">Source ↗</a>
+      </div>
+      <small
+        >Independent project. Not affiliated with Apple, Microsoft, Sony, or
+        OpenAI. Controller illustration is illustrative; hardware and companion
+        apps are not included.</small
+      >
+    </footer>
+  </body>
+</html>
