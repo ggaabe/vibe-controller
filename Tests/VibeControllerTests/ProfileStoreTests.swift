@@ -24,6 +24,9 @@ final class ProfileStoreTests: XCTestCase {
                        ShortcutDescriptor(keyCode: 21, modifiers: [.shift]))
         for modifier in [ControllerControlID.leftShoulder, .rightShoulder] {
             XCTAssertEqual(
+                snapshot.effectiveMapping(for: .menu, modifierControl: modifier).shortcut,
+                ShortcutDescriptor(keyCode: 48, modifiers: []))
+            XCTAssertEqual(
                 snapshot.effectiveMapping(for: .leftThumbstickButton, modifierControl: modifier).shortcut,
                 ShortcutDescriptor(keyCode: 36, modifiers: [.shift]))
         }

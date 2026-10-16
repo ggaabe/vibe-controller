@@ -709,6 +709,11 @@ extension ControllerProfile {
                         shortcut: ShortcutDescriptor(keyCode: 47, modifiers: []),
                         triggerMode: .tap
                     ),
+                    .menu: ControllerActionMapping(
+                        actionType: .keyboardShortcut,
+                        shortcut: ShortcutDescriptor(keyCode: 48, modifiers: []),
+                        triggerMode: .tap
+                    ),
                     .leftThumbstickButton: ControllerActionMapping(
                         actionType: .keyboardShortcut,
                         shortcut: ShortcutDescriptor(keyCode: 36, modifiers: [.shift]),

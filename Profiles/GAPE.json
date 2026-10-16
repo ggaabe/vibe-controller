@@ -366,6 +366,17 @@
           "triggerMode": "tap",
           "vibration": "none"
         },
+        "menu": {
+          "actionType": "keyboardShortcut",
+          "repeatDelay": 0.35,
+          "repeatInterval": 0.08,
+          "shortcut": {
+            "keyCode": 48,
+            "modifiers": []
+          },
+          "triggerMode": "tap",
+          "vibration": "none"
+        },
         "rightShoulder": {
           "actionType": "keyboardShortcut",
           "repeatDelay": 0.35,

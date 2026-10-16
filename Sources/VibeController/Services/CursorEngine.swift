@@ -1,7 +1,17 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import OSLog
 import simd
+
+/// Lets timing/lifecycle tests run the real motion loop without emitting any
+/// mouse events or starting a privileged virtual-HID helper.
+protocol CursorPointerOutput: Sendable {
+    var isVirtualPointingReady: Bool { get }
+    func postRelativePointer(delta: SIMD2<Double>) -> Bool
+    func postVirtualRelativePointer(delta: SIMD2<Double>) -> Bool
+    func postMouseButton(_ button: CGMouseButton, isDown: Bool, clickCount: Int) -> Bool
+}
 
 enum CursorActivityState: String, Sendable {
     case disabled
@@ -175,9 +185,10 @@ private final class MainActorMovementAccumulator: @unchecked Sendable {
     }
 }
 
-private final class CursorMotionLoop: @unchecked Sendable {
+final class CursorMotionLoop: @unchecked Sendable {
     private static let outputIntervalNanoseconds = 8_333_333
     private static let diagnosticsInterval = 1.0 / 15.0
+    private static let logger = Logger(subsystem: "com.vibe-controller.app", category: "MotionTiming")
 
     private let queue = DispatchQueue(
         label: "com.vibe-controller.cursor-motion",
@@ -185,7 +196,10 @@ private final class CursorMotionLoop: @unchecked Sendable {
         autoreleaseFrequency: .workItem
     )
     private let queueKey = DispatchSpecificKey<UInt8>()
-    private let inputBridge: UniversalControlInputBridge
+    private let inputBridge: any CursorPointerOutput
+    private let motionActivity: CursorMotionActivity
+    private var outputCadence = CursorOutputCadence()
+    private var stopped = false
     private let eventSource = CGEventSource(stateID: .combinedSessionState)
     private let diagnosticsDelivery = MainActorLatestValue<CursorDiagnostics>()
     private let movementAccumulator = MainActorMovementAccumulator()
@@ -214,8 +228,9 @@ private final class CursorMotionLoop: @unchecked Sendable {
     private var suspended = false
     private var draggingLeftMouse = false
 
-    init(inputBridge: UniversalControlInputBridge) {
+    init(inputBridge: any CursorPointerOutput, motionActivity: CursorMotionActivity = CursorMotionActivity()) {
         self.inputBridge = inputBridge
+        self.motionActivity = motionActivity
         lastKnownCursorPosition = CGEvent(source: nil)?.location ?? .zero
         queue.setSpecific(key: queueKey, value: 1)
         queue.async { [weak self] in
@@ -256,7 +271,9 @@ private final class CursorMotionLoop: @unchecked Sendable {
                 self.resetFlickState()
                 self.zoomRepeater.reset()
                 self.endLeftDragOnQueue()
+                self.cancelDiagnosticMotion()
             }
+            self.refreshMotionActivity()
         }
     }
 
@@ -271,7 +288,9 @@ private final class CursorMotionLoop: @unchecked Sendable {
                 self.resetFlickState()
                 self.zoomRepeater.reset()
                 self.endLeftDragOnQueue()
+                self.cancelDiagnosticMotion()
             }
+            self.refreshMotionActivity()
         }
     }
 
@@ -285,16 +304,23 @@ private final class CursorMotionLoop: @unchecked Sendable {
                 self.crossEdgeSweep = nil
                 self.resetFlickState()
                 self.zoomRepeater.reset()
+                self.cancelDiagnosticMotion()
             }
+            self.refreshMotionActivity()
         }
     }
 
     func updateInput(snapshot: ControllerSnapshot) {
         queue.async { [weak self] in
             guard let self else { return }
-            self.leftStick = snapshot.leftStick
-            self.rightStick = snapshot.rightStick
-            self.pressedControls = snapshot.pressedControls
+            self.leftStick = snapshot.isConnected ? snapshot.leftStick : StickSnapshot()
+            self.rightStick = snapshot.isConnected ? snapshot.rightStick : StickSnapshot()
+            self.pressedControls = snapshot.isConnected ? snapshot.pressedControls : []
+            if !snapshot.isConnected {
+                self.smoothedVelocity = .zero
+                self.crossEdgeSweep = nil
+                self.cancelDiagnosticMotion()
+            }
             if self.cursorConfiguration.zoomGestureEnabled,
                snapshot.pressedControls.contains(.buttonSouth),
                CursorMath.zoomGestureSample(stick: snapshot.leftStick) != nil {
@@ -302,6 +328,9 @@ private final class CursorMotionLoop: @unchecked Sendable {
             } else {
                 self.recordPrimaryStickChange(at: ProcessInfo.processInfo.systemUptime)
             }
+            // Acquire on the input callback, before waiting for a timer that
+            // may already have been throttled while the app was idle.
+            self.refreshMotionActivity()
         }
     }
 
@@ -312,6 +341,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
             self.resetFlickState()
             self.zoomRepeater.reset()
             self.recordPrimaryStickChange(at: ProcessInfo.processInfo.systemUptime)
+            self.refreshMotionActivity()
         }
     }
 
@@ -322,7 +352,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
     func beginLeftDrag() {
         syncOnQueue {
             guard accessibilityTrusted, !draggingLeftMouse else { return }
-            if inputBridge.postMouseButton(.left, isDown: true) {
+            if inputBridge.postMouseButton(.left, isDown: true, clickCount: 1) {
                 draggingLeftMouse = true
                 return
             }
@@ -350,6 +380,8 @@ private final class CursorMotionLoop: @unchecked Sendable {
             zoomRepeater.reset()
             recordPrimaryStickChange(at: ProcessInfo.processInfo.systemUptime)
             lastTickTime = ProcessInfo.processInfo.systemUptime
+            cancelDiagnosticMotion()
+            refreshMotionActivity()
         }
     }
 
@@ -418,6 +450,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
                 self?.diagnosticTick()
             }
             diagnosticTimer = timer
+            refreshMotionActivity()
             timer.resume()
             return "Running a six-second cross-Mac cursor sweep."
         }
@@ -470,6 +503,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
             resetFlickState()
             zoomRepeater.reset()
             lastTickTime = ProcessInfo.processInfo.systemUptime
+            refreshMotionActivity()
             publishDiagnostics(
                 state: .moving,
                 velocity: direction.motionVector * CrossEdgeSweep.speed,
@@ -484,13 +518,46 @@ private final class CursorMotionLoop: @unchecked Sendable {
 
     func stop() {
         syncOnQueue {
+            stopped = true
             timer?.cancel()
             timer = nil
             diagnosticTimer?.cancel()
             diagnosticTimer = nil
             crossEdgeSweep = nil
             endLeftDragOnQueue()
+            motionActivity.setActive(false)
+            outputCadence.reset()
         }
+    }
+
+    private func cancelDiagnosticMotion() {
+        diagnosticTimer?.cancel()
+        diagnosticTimer = nil
+        diagnosticReportsRemaining = 0
+    }
+
+    private func refreshMotionActivity() {
+        let canMove = !stopped && enabled && accessibilityTrusted && !suspended
+        let zooming = cursorConfiguration.zoomGestureEnabled
+            && pressedControls.contains(.buttonSouth)
+            && CursorMath.zoomGestureSample(stick: leftStick) != nil
+        let moving = simd_length(velocity(for: cursorConfiguration.primaryStick,
+                                          speed: cursorConfiguration.primarySpeed)) > 0
+            || simd_length(velocity(for: cursorConfiguration.precisionStick,
+                                    speed: cursorConfiguration.precisionSpeed)) > 0
+            || simd_length(smoothedVelocity) >= 0.01
+        let active = canMove && (moving || zooming || crossEdgeSweep != nil || diagnosticReportsRemaining > 0)
+        if active, !motionActivity.isActive {
+            // Do not charge an idle/throttled interval to the first movement.
+            lastTickTime = ProcessInfo.processInfo.systemUptime
+        }
+        motionActivity.setActive(active)
+        if !active { outputCadence.reset() }
+    }
+
+    private func recordOutputCadence() {
+        guard let report = outputCadence.record(at: ProcessInfo.processInfo.systemUptime) else { return }
+        Self.logger.info("Cursor output: \(report.frequency, format: .fixed(precision: 1)) Hz; max gap \(report.longestGap * 1_000, format: .fixed(precision: 1)) ms; gaps over 25 ms: \(report.lateIntervals)")
     }
 
     private func startTimer() {
@@ -509,6 +576,8 @@ private final class CursorMotionLoop: @unchecked Sendable {
     }
 
     private func tick() {
+        guard !stopped else { return }
+        defer { refreshMotionActivity() }
         let now = ProcessInfo.processInfo.systemUptime
         let deltaTime = CursorMath.elapsedDuration(from: lastTickTime, to: now)
         lastTickTime = now
@@ -741,6 +810,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
                 )
                 return
             }
+            recordOutputCadence()
             publishDiagnostics(
                 state: .moving,
                 velocity: smoothedVelocity,
@@ -751,6 +821,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
         }
 
         if inputBridge.postRelativePointer(delta: delta) {
+            recordOutputCadence()
             publishDiagnostics(
                 state: .moving,
                 velocity: smoothedVelocity,
@@ -769,6 +840,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
         let type: CGEventType = draggingLeftMouse ? .leftMouseDragged : .mouseMoved
         let warpResult = CGWarpMouseCursorPosition(target)
         postMouseEvent(type: type, location: target, button: .left)
+        recordOutputCadence()
         publishDiagnostics(
             state: .moving,
             velocity: smoothedVelocity,
@@ -781,7 +853,7 @@ private final class CursorMotionLoop: @unchecked Sendable {
 
     private func endLeftDragOnQueue() {
         guard draggingLeftMouse else { return }
-        if inputBridge.postMouseButton(.left, isDown: false) {
+        if inputBridge.postMouseButton(.left, isDown: false, clickCount: 1) {
             draggingLeftMouse = false
             return
         }
@@ -835,6 +907,12 @@ private final class CursorMotionLoop: @unchecked Sendable {
     }
 
     private func diagnosticTick() {
+        guard !stopped, enabled, accessibilityTrusted, !suspended else {
+            cancelDiagnosticMotion()
+            refreshMotionActivity()
+            return
+        }
+        defer { refreshMotionActivity() }
         guard diagnosticReportsRemaining > 0 else {
             diagnosticTimer?.cancel()
             diagnosticTimer = nil

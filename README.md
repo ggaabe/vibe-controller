@@ -278,7 +278,7 @@ Gabe's Defaults ships with the current modifier setup already configured:
 | LB + Share (Xbox Series) | Send Shift-2 (`@` on a US keyboard) |
 | RB + Share (Xbox Series) | Send Shift-4 (`$` on a US keyboard) |
 | RB / R1 + Y / Triangle | Send Control-V (alternate paste / app-specific command) |
-| RB / R1 + Menu / Options | Press Tab (for CLI queueing or navigation); plain Menu remains Command-T |
+| LB / L1 or RB / R1 + Menu / Options | Press Tab (for CLI queueing or navigation); plain Menu remains Command-T |
 | LB / L1 or RB / R1 + L3 | Press Shift + Return (insert a newline in supported apps) |
 | LB + RB / R1 | Press Left Command + Right Command |
 | LB + D-pad direction | Cross the matching Universal Control edge |

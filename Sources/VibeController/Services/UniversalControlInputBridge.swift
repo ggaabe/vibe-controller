@@ -231,7 +231,7 @@ private final class RelativePointerOutput: @unchecked Sendable {
 /// treats like physical hardware, with IOHIDSystem retained as a local-only
 /// compatibility fallback.
 @MainActor
-final class UniversalControlInputBridge {
+final class UniversalControlInputBridge: CursorPointerOutput {
     private nonisolated let virtualHIDBridge: PrivilegedVirtualHIDBridge
     private nonisolated let legacyPoster: LegacyHIDEventPoster
     private nonisolated let relativePointerOutput: RelativePointerOutput
