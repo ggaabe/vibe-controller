@@ -12,11 +12,13 @@ final class CursorMotionLoopTests: XCTestCase {
         loop.updateInput(snapshot: input(left: StickSnapshot(x: 0.7, y: 0.7)))
         // Hold one sample: neither fresh USB reports nor UI turns may be
         // necessary to sustain movement. Output goes only to our recorder.
-        Thread.sleep(forTimeInterval: 0.4)
+        // Block the main thread while two batches arrive. Shared CI hosts
+        // cannot guarantee a wall-clock report rate, even with correct timers.
+        XCTAssertTrue(output.waitForSamples(24, timeout: 3))
+        let firstBatchCount = output.samples.count
+        XCTAssertTrue(output.waitForSamples(firstBatchCount + 24, timeout: 3))
         let samples = output.samples
-        XCTAssertGreaterThan(samples.count, 20)
-        let duration = (samples.last?.time ?? 0) - (samples.first?.time ?? 0)
-        XCTAssertGreaterThan(Double(samples.count - 1) / max(0.001, duration), 80)
+        XCTAssertGreaterThanOrEqual(samples.count, 48)
         XCTAssertTrue(samples.allSatisfy { $0.delta.x > 0 && $0.delta.y < 0 })
         XCTAssertEqual(output.activityStarts, 1)
         XCTAssertEqual(output.activityEnds, 0)
@@ -142,6 +144,7 @@ final class CursorMotionLoopTests: XCTestCase {
 private final class MotionRecorder: CursorPointerOutput, @unchecked Sendable {
     struct Sample { var time: TimeInterval; var delta: SIMD2<Double> }
     private let lock = NSLock()
+    private let sampleAvailable = DispatchSemaphore(value: 0)
     private var recorded: [Sample] = []
     private var starts = 0
     private var ends = 0
@@ -151,8 +154,16 @@ private final class MotionRecorder: CursorPointerOutput, @unchecked Sendable {
     var activityEnds: Int { lock.withLock { ends } }
     func beganActivity() { lock.withLock { starts += 1 } }
     func endedActivity() { lock.withLock { ends += 1 } }
+    func waitForSamples(_ minimumCount: Int, timeout: TimeInterval) -> Bool {
+        let deadline = DispatchTime.now() + timeout
+        while samples.count < minimumCount {
+            guard sampleAvailable.wait(timeout: deadline) == .success else { return false }
+        }
+        return true
+    }
     func postRelativePointer(delta: SIMD2<Double>) -> Bool {
         lock.withLock { recorded.append(Sample(time: ProcessInfo.processInfo.systemUptime, delta: delta)) }
+        sampleAvailable.signal()
         return true
     }
     func postVirtualRelativePointer(delta: SIMD2<Double>) -> Bool { postRelativePointer(delta: delta) }
