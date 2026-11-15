@@ -283,13 +283,32 @@ enum XboxUSBReportParser {
     }
 }
 
-private enum DirectUSBControllerKind: Equatable {
+enum DirectUSBControllerKind: Equatable {
+    case xbox360
     case xbox(supportsShareButton: Bool)
     case playStation(PlayStationUSBControllerKind)
 
+    static func matching(vendorID: Int?, productID: Int?) -> Self? {
+        switch (vendorID, productID) {
+        case (0x045e, 0x028e):
+            return .xbox360
+        case (0x045e, 0x028f), (0x045e, 0x0291), (0x045e, 0x0719):
+            // Play & Charge and wireless receivers are not wired gamepads.
+            return nil
+        case (0x045e, _):
+            return .xbox(supportsShareButton: productID == 0x0b12)
+        case (0x054c, 0x05c4), (0x054c, 0x09cc):
+            return .playStation(.dualShock4)
+        case (0x054c, 0x0ce6), (0x054c, 0x0df2):
+            return .playStation(.dualSense)
+        default:
+            return nil
+        }
+    }
+
     var family: ControllerFamily {
         switch self {
-        case .xbox:
+        case .xbox360, .xbox:
             return .xbox
         case .playStation:
             return .playStation
@@ -298,11 +317,67 @@ private enum DirectUSBControllerKind: Equatable {
 
     var standardReportID: Int {
         switch self {
+        case .xbox360:
+            return 0
         case .xbox:
             return 0x20
         case .playStation:
             return 0x01
         }
+    }
+
+    var minimumReportLength: Int {
+        switch self {
+        case .xbox360: 19
+        case .xbox: 18
+        case .playStation: 10
+        }
+    }
+
+    func parse(reportID: Int, bytes: [UInt8], previous: XboxUSBInputState) -> XboxUSBInputState? {
+        switch self {
+        case .xbox360:
+            Xbox360USBReportParser.parse(reportID: reportID, bytes: bytes)
+        case .xbox(let supportsShareButton):
+            XboxUSBReportParser.parse(
+                reportID: reportID, bytes: bytes, previous: previous,
+                supportsShareButton: supportsShareButton)
+        case .playStation(let kind):
+            PlayStationUSBReportParser.parse(kind: kind, reportID: reportID, bytes: bytes)
+        }
+    }
+}
+
+/// Discovery alone must never suppress GameController input. Take ownership
+/// only after decoding a complete input packet, and keep one device's held
+/// controls from being mixed with another connected controller's reports.
+struct DirectUSBInputSession<DeviceID: Hashable> {
+    private(set) var activeDeviceID: DeviceID?
+    private(set) var state = XboxUSBInputState()
+
+    mutating func receive(
+        deviceID: DeviceID, kind: DirectUSBControllerKind, reportID: Int, bytes: [UInt8]
+    ) -> XboxUSBInputState? {
+        guard activeDeviceID == nil || activeDeviceID == deviceID,
+              let parsed = kind.parse(reportID: reportID, bytes: bytes, previous: state),
+              activeDeviceID != nil || reportID == kind.standardReportID else { return nil }
+        activeDeviceID = deviceID
+        state = parsed
+        return parsed
+    }
+
+    @discardableResult
+    mutating func remove(deviceID: DeviceID) -> Bool {
+        guard activeDeviceID == deviceID else { return false }
+        activeDeviceID = nil
+        state = XboxUSBInputState()
+        return true
+    }
+
+    mutating func releaseHome() -> XboxUSBInputState? {
+        guard state.pressedControls.remove(.home) != nil else { return nil }
+        state.analogValues[.home] = 0
+        return state
     }
 }
 
@@ -323,8 +398,8 @@ final class XboxUSBControllerReader: @unchecked Sendable {
     private let manager: IOHIDManager
     private var matchedDeviceIDs = Set<ObjectIdentifier>()
     private var deviceKinds: [ObjectIdentifier: DirectUSBControllerKind] = [:]
-    private var latestState = XboxUSBInputState()
-    private var hasReceivedStandardInput = false
+    private var inputSession = DirectUSBInputSession<ObjectIdentifier>()
+    private var lastPublishedState = XboxUSBInputState()
     private var pendingHomeRelease: DispatchWorkItem?
     private var isStarted = false
 
@@ -387,8 +462,6 @@ final class XboxUSBControllerReader: @unchecked Sendable {
         guard matchedDeviceIDs.insert(deviceID).inserted else { return }
         deviceKinds[deviceID] = kind
 
-        let name = stringProperty(kIOHIDProductKey, device: device) ?? kind.family.displayName
-        onConnectionChanged?(true, name, kind.family)
         readCurrentStandardInput(from: device, kind: kind)
     }
 
@@ -396,13 +469,11 @@ final class XboxUSBControllerReader: @unchecked Sendable {
         let deviceID = ObjectIdentifier(device)
         guard matchedDeviceIDs.remove(deviceID) != nil else { return }
         deviceKinds[deviceID] = nil
-        hasReceivedStandardInput = false
+        guard inputSession.remove(deviceID: deviceID) else { return }
         pendingHomeRelease?.cancel()
         pendingHomeRelease = nil
-        latestState = XboxUSBInputState()
-        if matchedDeviceIDs.isEmpty {
-            onConnectionChanged?(false, nil, .generic)
-        }
+        lastPublishedState = XboxUSBInputState()
+        onConnectionChanged?(false, nil, .generic)
     }
 
     private func receivedReport(
@@ -412,41 +483,25 @@ final class XboxUSBControllerReader: @unchecked Sendable {
     ) {
         let deviceID = ObjectIdentifier(device)
         guard matchedDeviceIDs.contains(deviceID), let kind = deviceKinds[deviceID] else { return }
-        let parsed: XboxUSBInputState?
-        switch kind {
-        case .xbox(let supportsShareButton):
-            parsed = XboxUSBReportParser.parse(
-                reportID: reportID,
-                bytes: bytes,
-                previous: latestState,
-                supportsShareButton: supportsShareButton
-            )
-        case .playStation(let playStationKind):
-            parsed = PlayStationUSBReportParser.parse(
-                kind: playStationKind,
-                reportID: reportID,
-                bytes: bytes
-            )
-        }
-        guard let parsed else {
-            return
+        let previous = lastPublishedState
+        let receivedFirstStandardReport = inputSession.activeDeviceID == nil
+        guard let parsed = inputSession.receive(
+            deviceID: deviceID, kind: kind, reportID: reportID, bytes: bytes
+        ) else { return }
+
+        if receivedFirstStandardReport {
+            let name = stringProperty(kIOHIDProductKey, device: device) ?? kind.family.displayName
+            onConnectionChanged?(true, name, kind.family)
         }
 
-        let isStandardReport = reportID == kind.standardReportID
-        let receivedFirstStandardReport = isStandardReport && !hasReceivedStandardInput
-        if isStandardReport {
-            hasReceivedStandardInput = true
-        }
-        guard hasReceivedStandardInput else { return }
-
-        if kind.family == .xbox, reportID == 0x07 {
+        if case .xbox = kind, reportID == 0x07 {
             updateHomeReleaseFallback(for: parsed)
         }
 
-        guard receivedFirstStandardReport || inputChangedMeaningfully(from: latestState, to: parsed) else {
+        guard receivedFirstStandardReport || inputChangedMeaningfully(from: previous, to: parsed) else {
             return
         }
-        latestState = parsed
+        lastPublishedState = parsed
         onInput?(parsed)
     }
 
@@ -457,12 +512,10 @@ final class XboxUSBControllerReader: @unchecked Sendable {
         guard state.pressedControls.contains(.home) else { return }
 
         let release = DispatchWorkItem { [weak self] in
-            guard let self,
-                  self.latestState.pressedControls.contains(.home) else { return }
-            self.latestState.pressedControls.remove(.home)
-            self.latestState.analogValues[.home] = 0
+            guard let self, let released = self.inputSession.releaseHome() else { return }
             self.pendingHomeRelease = nil
-            self.onInput?(self.latestState)
+            self.lastPublishedState = released
+            self.onInput?(released)
         }
         pendingHomeRelease = release
         queue.asyncAfter(
@@ -492,8 +545,7 @@ final class XboxUSBControllerReader: @unchecked Sendable {
 
             let value = valuePointer.pointee.takeUnretainedValue()
             let length = IOHIDValueGetLength(value)
-            let minimumLength = kind.family == .xbox ? 18 : 10
-            guard length >= minimumLength else { continue }
+            guard length >= kind.minimumReportLength else { continue }
             let bytes = Array(
                 UnsafeBufferPointer(start: IOHIDValueGetBytePtr(value), count: length)
             )
@@ -534,18 +586,9 @@ final class XboxUSBControllerReader: @unchecked Sendable {
     }
 
     private func controllerKind(for device: IOHIDDevice) -> DirectUSBControllerKind? {
-        let vendorID = numberProperty(kIOHIDVendorIDKey, device: device)
-        let productID = numberProperty(kIOHIDProductIDKey, device: device)
-        switch (vendorID, productID) {
-        case (0x045e, _):
-            return .xbox(supportsShareButton: productID == 0x0b12)
-        case (0x054c, 0x05c4), (0x054c, 0x09cc):
-            return .playStation(.dualShock4)
-        case (0x054c, 0x0ce6), (0x054c, 0x0df2):
-            return .playStation(.dualSense)
-        default:
-            return nil
-        }
+        DirectUSBControllerKind.matching(
+            vendorID: numberProperty(kIOHIDVendorIDKey, device: device),
+            productID: numberProperty(kIOHIDProductIDKey, device: device))
     }
 
     private func stringProperty(_ key: String, device: IOHIDDevice) -> String? {

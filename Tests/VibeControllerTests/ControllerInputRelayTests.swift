@@ -3,6 +3,49 @@ import Foundation
 import XCTest
 
 final class ControllerInputRelayTests: XCTestCase {
+    func testWired360ReportsReachRealtimeMotionAndActionsAndDisconnectRestoresFallback() throws {
+        let queue = DispatchQueue(label: "test.wired-360-relay")
+        let relay = ControllerInputRelay(inputQueue: queue)
+        let done = DispatchSemaphore(value: 0)
+        // All collection and assertions below run on the serial input queue.
+        let captured = Wired360RelayCapture()
+        relay.setRealtimeHandler { captured.motion.append($0) }
+        relay.setRealtimeActionHandler {
+            captured.actions.append($0)
+            return true
+        }
+        relay.receiveGameController(makeSnapshot(x: 0.1))
+        var bytes: [UInt8] = [0, 20, 0, 0x22, 0, 255, 0xff, 0x7f] + Array(repeating: 0, count: 12)
+        let pressed = try XCTUnwrap(Xbox360USBReportParser.parse(reportID: 0, bytes: bytes))
+        relay.setRawUSBConnection(isConnected: true, name: "Xbox 360 Controller", family: .xbox)
+        relay.receiveRawUSB(pressed)
+        // GC may freeze or report neutral while UC owns the remote pointer.
+        // It must not replace ongoing physical USB input.
+        relay.receiveGameController(makeSnapshot(x: -0.75))
+        bytes[3] = 0
+        bytes[5] = 0
+        bytes[6] = 0
+        bytes[7] = 0
+        relay.receiveRawUSB(try XCTUnwrap(Xbox360USBReportParser.parse(reportID: 0, bytes: bytes)))
+        relay.setRawUSBConnection(isConnected: false, name: nil)
+        queue.async {
+            XCTAssertEqual(captured.motion.count, 4)
+            guard captured.motion.count == 4 else { done.signal(); return }
+            XCTAssertEqual(captured.motion[1].leftStick.x, 1)
+            XCTAssertEqual(captured.motion[1].pressedControls, [.rightShoulder, .buttonEast, .rightTrigger])
+            XCTAssertEqual(captured.motion[1].controllerName, "Xbox 360 Controller")
+            XCTAssertEqual(captured.motion[1].controllerFamily, .xbox)
+            XCTAssertEqual(captured.motion[1].connectionSummary, "USB • Direct HID")
+            XCTAssertTrue(captured.motion[2].pressedControls.isEmpty)
+            XCTAssertEqual(captured.motion.last?.leftStick.x, -0.75)
+            XCTAssertEqual(captured.actions.count, 3)
+            done.signal()
+        }
+        XCTAssertEqual(done.wait(timeout: .now() + 2), .success)
+        // Keep the relay alive until the ordered assertions have run.
+        withExtendedLifetime(relay) {}
+    }
+
     @MainActor
     func testDeclinedNativeActionsAreDeliveredToCompanionHandlerOnce() async {
         let relay = ControllerInputRelay(inputQueue: DispatchQueue(label: "test.companion-routing"))
@@ -154,6 +197,12 @@ final class ControllerInputRelayTests: XCTestCase {
             lastUpdated: timestamp
         )
     }
+}
+
+/// Accessed only by a single test input queue.
+private final class Wired360RelayCapture: @unchecked Sendable {
+    var motion: [ControllerSnapshot] = []
+    var actions: [ControllerSnapshot] = []
 }
 
 private final class RelayRecorder: @unchecked Sendable {

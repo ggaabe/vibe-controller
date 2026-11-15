@@ -27,6 +27,12 @@ If the Releases page does not have a build yet, use the source instructions belo
 - The one-time **Virtual Hardware Support** install on the lead Mac for seamless Universal Control handoff
 - Local-network permission on both Macs only when using the optional companion mode
 
+### Wired Xbox 360 controllers
+
+Genuine Microsoft wired Xbox 360 controllers (`045e:028e`) use a dedicated USB decoder on **macOS 15 Sequoia or newer**, which supplies Apple's wired Xbox driver. USB-A works directly, or through a data-capable USB-C adapter/hub. Start maps to **Menu**, Back to **View**, and Guide to **Home**, so existing profiles and modifier layers apply without changes. The 360 has no Share button.
+
+This path has automated packet and input-routing coverage; physical Xbox 360 and cross-Mac testing are still pending. Wireless 360 controllers with Play & Charge cables/receivers and third-party 360-style devices are not validated by this addition. See [Xbox 360 support and verification](docs/XBOX-360.md).
+
 ## Build and run
 
 Clone the repository and run the tests:
